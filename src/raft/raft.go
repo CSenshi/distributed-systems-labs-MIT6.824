@@ -18,8 +18,10 @@ package raft
 //
 
 import (
+	"math/rand"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"../labrpc"
 )
@@ -58,7 +60,9 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
-	state State // State of raft (leader, follower, candidate)
+	state             State // State of raft (leader, follower, candidate)
+	electionTTL       time.Duration
+	electionStartTime time.Time
 
 	/* Taken From Frame 2 https://raft.github.io/raft.pdf */
 	// Persistent state on all servers (Updated on stable storage before responding to RPCs)
@@ -73,14 +77,13 @@ type Raft struct {
 	// Volatile state on leaders (Reinitialized after election)
 	nextIndex  []int // for each server, index of the next log entry to send to that server (initialized to leader last log index + 1)
 	matchIndex []int //for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
-
 }
 
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
 	rf.mu.Lock()
-	defer  rf.mu.Unlock()
+	defer rf.mu.Unlock()
 
 	var term = rf.currentTerm
 	var isLeader = rf.state == Leader
@@ -238,11 +241,16 @@ func (rf *Raft) killed() bool {
 // RequestVote RPCs when it hasn't heard from another peer for a while. This way a peer
 // will learn who is the leader, if there is already a leader, or become the leader itself.
 func (rf *Raft) leaderElection() {
-	if rf.state == Leader {
-		// ToDo: Solve for Leader
-	} else /* rf.state == Follower || rf.state == Candidate */ {
-		// ToDo: Solve for Follower/Candidate
-		DPrintf("Peer %v(%v)", rf.me, rf.state)
+	for {
+		if rf.electionStartTime.Before(time.Now().Add(-rf.electionTTL)){
+			DPrintf("Peer %v(%v)", rf.me, rf.state)
+		}
+
+		if rf.state == Leader {
+			// ToDo: Solve for Leader
+		} else /* rf.state == Follower || rf.state == Candidate */ {
+			// ToDo: Solve for Follower/Candidate
+		}
 	}
 }
 
@@ -266,6 +274,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// Your initialization code here (2A, 2B, 2C).
 	rf.state = Follower // all raft servers should start as followers
+
+	rf.electionTTL = time.Millisecond * (time.Duration(electionMinTTL + rand.Intn(electionRangeTTL)))
+	rf.electionStartTime = time.Now()
 
 	/* Persistent state on all servers */
 	rf.currentTerm = 0
