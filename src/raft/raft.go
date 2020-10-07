@@ -58,16 +58,19 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
-	/* Persistent state on all servers (Updated on stable storage before responding to RPCs) */
+	state State // State of raft (leader, follower, candidate)
+
+	/* Taken From Frame 2 https://raft.github.io/raft.pdf */
+	// Persistent state on all servers (Updated on stable storage before responding to RPCs)
 	currentTerm int        // latest term server has seen (initialized to 0 on first boot, increases monotonically)
 	votedFor    int        // candidateID that received vote in current term (or null if none)
 	log         []LogEntry // log entries; each entry contains command for state machine, and term when entry was received by leader (first index is 1)
 
-	/* Volatile state on all servers */
+	// Volatile state on all servers
 	commitIndex int // index of highest log entry known to be committed (initialized to 0, increases monotonically)
 	lastApplied int // index of highest log entry applied to state machine (initialized to 0, increases monotonically)
 
-	/* Volatile state on leaders (Reinitialized after election) */
+	// Volatile state on leaders (Reinitialized after election)
 	nextIndex  []int // for each server, index of the next log entry to send to that server (initialized to leader last log index + 1)
 	matchIndex []int //for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
 
@@ -229,6 +232,18 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+// create a background goroutine that will kick off leader election periodically by sending out
+// RequestVote RPCs when it hasn't heard from another peer for a while. This way a peer
+// will learn who is the leader, if there is already a leader, or become the leader itself.
+func (rf *Raft) leaderElection() {
+	if rf.state == Leader {
+		// ToDo: Solve for Leader
+	} else /* rf.state == Follower || rf.state == Candidate */ {
+		// ToDo: Solve for Follower/Candidate
+		DPrintf("Peer %v(%v)", rf.me, rf.state)
+	}
+}
+
 //
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
@@ -248,6 +263,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
+	rf.state = Follower // all raft servers should start as followers
+
 	/* Persistent state on all servers */
 	rf.currentTerm = 0
 	rf.votedFor = -1
@@ -263,6 +280,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
+
+	go rf.leaderElection()
 
 	return rf
 }
