@@ -79,11 +79,13 @@ type Raft struct {
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
+	rf.mu.Lock()
+	defer  rf.mu.Unlock()
 
-	var term int
-	var isleader bool
-	// Your code here (2A).
-	return term, isleader
+	var term = rf.currentTerm
+	var isLeader = rf.state == Leader
+
+	return term, isLeader
 }
 
 //
