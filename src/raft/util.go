@@ -6,7 +6,7 @@ import (
 )
 
 // Debugging
-const Debug = 0
+const Debug = 1
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug > 0 {
@@ -39,6 +39,6 @@ func (e State) String() string {
 
 // Min and Max TTLs for election (150, 300)
 const (
-	electionMinTTL   = 150
+	electionMinTTL   = 400
 	electionRangeTTL = 150
 )

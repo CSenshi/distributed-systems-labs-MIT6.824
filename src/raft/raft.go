@@ -60,9 +60,9 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
-	state             State // State of raft (leader, follower, candidate)
-	electionTTL       time.Duration
-	electionStartTime time.Time
+	state             State         // State of raft (leader, follower, candidate)
+	electionTTL       time.Duration // ttl timer
+	electionStartTime time.Time     // time when ttl reset happened
 
 	/* Taken From Frame 2 https://raft.github.io/raft.pdf */
 	// Persistent state on all servers (Updated on stable storage before responding to RPCs)
@@ -155,7 +155,23 @@ type RequestVoteReply struct {
 // example RequestVote RPC handler.
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	// Your code here (2A, 2B).
+	reply.VoteGranted = false
+	reply.Term = rf.currentTerm
+
+	// 1. Reply false if term < currentTerm (§5.1)
+	if args.Term < rf.currentTerm {
+		return
+	}
+
+	// 2. If votedFor is null or candidateId, and candidate’s log is at
+	// 	  least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
+	if rf.votedFor == -1 || rf.votedFor == args.CandidateID /* ToDO: Check for log */ {
+		rf.currentTerm = args.Term
+		reply.VoteGranted = true
+		rf.votedFor = args.CandidateID
+		DPrintf("Peer %v Voted for %v", rf.me, args.CandidateID)
+	}
+	rf.resetTTL()
 }
 
 //
@@ -242,16 +258,53 @@ func (rf *Raft) killed() bool {
 // will learn who is the leader, if there is already a leader, or become the leader itself.
 func (rf *Raft) leaderElection() {
 	for {
-		if rf.electionStartTime.Before(time.Now().Add(-rf.electionTTL)){
-			DPrintf("Peer %v(%v)", rf.me, rf.state)
-		}
+		ttlElapsed := rf.electionStartTime.Before(time.Now().Add(-rf.electionTTL))
 
 		if rf.state == Leader {
 			// ToDo: Solve for Leader
-		} else /* rf.state == Follower || rf.state == Candidate */ {
-			// ToDo: Solve for Follower/Candidate
+		} else if !ttlElapsed /* && (rf.state == Follower || rf.state == Candidate) */ {
+			// ToDO: Solve for Follower/Candidate
+		} else /* (rf.state == Follower || rf.state == Candidate) && ttlElapsed */ {
+			DPrintf("Term: %v, Peer %v (%v -> %v)", rf.currentTerm, rf.me, rf.state, Candidate)
+
+			rf.state = Candidate // 1. transitions to candidate state
+			rf.currentTerm += 1  // 2. increments its current term
+			rf.votedFor = rf.me  // 3. votes for itself
+			rf.resetTTL()
+
+			// 4. issues RequestVote RPCs in parallel
+			voteArg := &RequestVoteArgs{
+				Term:         rf.currentTerm,
+				CandidateID:  rf.me,
+				LastLogIndex: -1, // ToDo: Change
+				LastLogTerm:  -1, // ToDo: Change
+			}
+
+			votesReceived := 1
+			for i := range rf.peers {
+				if i == rf.me {
+					continue
+				}
+				// ToDo: Run in parallel
+				voteReplay := RequestVoteReply{}
+				rf.sendRequestVote(i, voteArg, &voteReplay)
+				if voteReplay.VoteGranted {
+					votesReceived++
+					// (a) it wins the election
+					if votesReceived >= (len(rf.peers)/2)+1 {
+						rf.state = Leader
+						// send heartbeat messages to all of the other servers to establish its authority
+						// ToDo: send HeartBeats
+					}
+				}
+			}
 		}
 	}
+}
+
+func (rf *Raft) resetTTL() {
+	rf.electionTTL = time.Millisecond * (time.Duration(electionMinTTL + rand.Intn(electionRangeTTL)))
+	rf.electionStartTime = time.Now()
 }
 
 //
