@@ -9,6 +9,7 @@ var (
 	Vote = Teal
 	NewLeader = Green
 	NewElection = Red
+	HeartBeat = Black
 )
 
 var (
@@ -66,4 +67,6 @@ func (e State) String() string {
 const (
 	electionMinTTL   = 400
 	electionRangeTTL = 150
+
+	heartBeatInterval = 250
 )
