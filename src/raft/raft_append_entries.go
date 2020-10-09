@@ -44,6 +44,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	return ok
 }
 
+
 func (rf *Raft) sendHeartBeats() {
 	for {
 		args := &AppendEntriesArgs{

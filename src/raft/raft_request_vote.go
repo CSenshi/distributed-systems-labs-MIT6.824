@@ -117,6 +117,8 @@ func (rf *Raft) leaderElection() {
 				if i == rf.me {
 					continue
 				}
+				// send initial empty AppendEntries RPCs (heartbeat) to each server;
+				// repeat during idle periods to prevent election timeouts (§5.2)
 				go rf.sendRequestAndProceed(i, voteArg)
 			}
 		}
