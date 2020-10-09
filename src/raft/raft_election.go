@@ -28,6 +28,9 @@ type RequestVoteReply struct {
 // example RequestVote RPC handler.
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
 	reply.VoteGranted = false
 	reply.Term = rf.currentTerm
 
@@ -123,6 +126,9 @@ func (rf *Raft) leaderElection() {
 func (rf *Raft) sendRequestAndProceed(peerNum int, voteArg *RequestVoteArgs) {
 	voteReplay := RequestVoteReply{}
 	rf.sendRequestVote(peerNum, voteArg, &voteReplay)
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	if voteReplay.VoteGranted {
 		rf.votesReceived++
 		if rf.state == Leader {
