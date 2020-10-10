@@ -22,18 +22,36 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	reply.Success = false
 
-	//1. Reply false if term < currentTerm (§5.1)
+	// 0. If RPC received from new leader: convert to follower
+	if args.Term > rf.currentTerm {
+		_, _ = DPrintf(HeartBeat("Peer %v Received heartBeat from %v | Result: Request term (%v) > (%v) Current Term "), rf.me, args.LeaderId, args.Term, rf.currentTerm)
+		rf.currentTerm = args.Term
+		rf.state = Follower
+		rf.votedFor = -1
+		rf.votesReceived = 0
+		rf.resetTTL()
+		return
+	}
+
+	// 1. Reply false if term < currentTerm (§5.1)
 	if args.Term < rf.currentTerm {
 		_, _ = DPrintf(HeartBeat("Peer %v Received heartBeat from %v | Result: Request term (%v) < (%v) Current Term "), rf.me, args.LeaderId, args.Term, rf.currentTerm)
 		return
 	}
-	//2. Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
+	// 2. Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
 
-	//3. If an existing entry conflicts with a new one (same index but different terms), delete the existing entry and all that follow it (§5.3)
+	// 3. If an existing entry conflicts with a new one (same index but different terms), delete the existing entry and all that follow it (§5.3)
 
-	//4. Append any new entries not already in the log
+	// 4. Append any new entries not already in the log
+	if rf.state != Follower{
+		_, _ = DPrintf(NewFollower("Peer %v: %v -> %v"), rf.me, rf.state, Follower)
+		rf.state = Follower
+	}
 
-	//5. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+	rf.votedFor = -1
+	rf.votesReceived = 0
+
+	// 5. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
 	reply.Success = true
 	_, _ = DPrintf(HeartBeat("Peer %v Received heartBeat from %v | Result: Success! "), rf.me, args.LeaderId)
 	rf.resetTTL()
@@ -47,6 +65,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 
 func (rf *Raft) sendHeartBeats() {
 	for {
+		rf.mu.Lock()
 		args := &AppendEntriesArgs{
 			Term:         rf.currentTerm,
 			LeaderId:     rf.me,
@@ -55,6 +74,9 @@ func (rf *Raft) sendHeartBeats() {
 			Entries:      nil,
 			LeaderCommit: 0,
 		}
+		if rf.state != Leader{
+			return
+		}
 		for i := range rf.peers {
 			if i == rf.me {
 				continue
@@ -62,6 +84,7 @@ func (rf *Raft) sendHeartBeats() {
 			reply := &AppendEntriesReply{}
 			go rf.sendAppendEntries(i, args, reply)
 		}
+		rf.mu.Unlock()
 		time.Sleep(heartBeatInterval * time.Millisecond)
 	}
 }

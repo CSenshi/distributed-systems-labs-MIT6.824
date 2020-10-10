@@ -36,7 +36,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	// 1. Reply false if term < currentTerm (§5.1)
 	if args.Term < rf.currentTerm {
+		_, _ = DPrintf(Vote("Discarded Vote: Peer %v did not vote for %v"), rf.me, args.CandidateID)
 		return
+	}
+
+	if args.Term > rf.currentTerm {
+		//_, _ = DPrintf(Vote("Discarded Vote: Peer %v did not vote for %v"), rf.me, args.CandidateID)
+		//return
+		rf.votedFor = -1
 	}
 
 	// 2. If votedFor is null or candidateId, and candidate’s log is at
@@ -45,7 +52,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.currentTerm = args.Term
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateID
-		_, _ = DPrintf(Vote("Peer %v Voted for %v"), rf.me, args.CandidateID)
+		_, _ = DPrintf(Vote("New Vote: Peer %v Voted for %v"), rf.me, args.CandidateID)
+	} else {
+		_, _ = DPrintf(Vote("Old Vote: Peer %v Voted for %v"), rf.me, rf.votedFor)
+		//_, _ = DPrintf(Vote("%v %v"), rf.votedFor, args.CandidateID)
 	}
 	rf.resetTTL()
 }
@@ -89,18 +99,23 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 // will learn who is the leader, if there is already a leader, or become the leader itself.
 func (rf *Raft) leaderElection() {
 	for {
+		//rf.mu.Lock()
 		ttlElapsed := rf.electionStartTime.Before(time.Now().Add(-rf.electionTTL))
 
 		if rf.state == Leader {
-			// ToDo: Solve for Leader
+			//rf.mu.Unlock()
+			time.Sleep(time.Duration(50) * time.Millisecond)
 		} else if !ttlElapsed /* && (rf.state == Follower || rf.state == Candidate) */ {
-			// ToDO: Solve for Follower/Candidate
+			//rf.mu.Unlock()
+			time.Sleep(time.Duration(50) * time.Millisecond)
 		} else /* (rf.state == Follower || rf.state == Candidate) && ttlElapsed */ {
 			_, _ = DPrintf(NewElection("Term: %v, Peer %v (%v -> %v)"), rf.currentTerm, rf.me, rf.state, Candidate)
 
 			rf.state = Candidate // 1. transitions to candidate state
 			rf.currentTerm += 1  // 2. increments its current term
 			rf.votedFor = rf.me  // 3. votes for itself
+			rf.votesReceived = 1
+
 			_, _ = DPrintf(Vote("Peer %v Voted for %v (Itself)"), rf.me, rf.me)
 			rf.resetTTL()
 
@@ -112,7 +127,6 @@ func (rf *Raft) leaderElection() {
 				LastLogTerm:  -1, // ToDo: Change
 			}
 
-			rf.votesReceived = 1
 			for i := range rf.peers {
 				if i == rf.me {
 					continue
@@ -121,6 +135,7 @@ func (rf *Raft) leaderElection() {
 				// repeat during idle periods to prevent election timeouts (§5.2)
 				go rf.sendRequestAndProceed(i, voteArg)
 			}
+			//rf.mu.Unlock()
 		}
 	}
 }
@@ -131,6 +146,7 @@ func (rf *Raft) sendRequestAndProceed(peerNum int, voteArg *RequestVoteArgs) {
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+
 	if voteReplay.VoteGranted {
 		rf.votesReceived++
 		if rf.state == Leader {

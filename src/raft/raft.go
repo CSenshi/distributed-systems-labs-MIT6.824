@@ -193,6 +193,7 @@ func (rf *Raft) resetTTL() {
 //
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
+	rand.Seed(time.Now().UnixNano())
 	rf := &Raft{}
 	rf.peers = peers
 	rf.persister = persister

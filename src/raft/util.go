@@ -9,7 +9,8 @@ var (
 	Vote = Teal
 	NewLeader = Green
 	NewElection = Red
-	HeartBeat = Black
+	HeartBeat = White
+	NewFollower = Yellow
 )
 
 var (
@@ -68,5 +69,5 @@ const (
 	electionMinTTL   = 400
 	electionRangeTTL = 150
 
-	heartBeatInterval = 250
+	heartBeatInterval = 150
 )
