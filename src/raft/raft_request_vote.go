@@ -36,15 +36,19 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	// 1. Reply false if term < currentTerm (§5.1)
 	if args.Term < rf.currentTerm {
-		_, _ = DPrintf(Vote("Discarded Vote: Peer %v did not vote for %v"), rf.me, args.CandidateID)
+		_, _ = DPrintf(Vote("[T%v] %v: Discarded Vote: did not vote for %v"), rf.currentTerm, rf.me, args.CandidateID)
 		return
 	}
 
-	if args.Term > rf.currentTerm {
-		//_, _ = DPrintf(Vote("Discarded Vote: Peer %v did not vote for %v"), rf.me, args.CandidateID)
-		//return
-		rf.votedFor = -1
-	}
+	//if args.Term > rf.currentTerm {
+	//	rf.votedFor = -1
+	//	rf.currentTerm = args.Term
+	//	if rf.state != Follower { // once server becomes follower, it has to reset timer
+	//		rf.resetTTL()
+	//		rf.state = Follower
+	//	}
+	//	return
+	//}
 
 	// 2. If votedFor is null or candidateId, and candidate’s log is at
 	// 	  least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
@@ -52,10 +56,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.currentTerm = args.Term
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateID
-		_, _ = DPrintf(Vote("New Vote: Peer %v Voted for %v"), rf.me, args.CandidateID)
+		_, _ = DPrintf(Vote("[T%v] %v: New Vote: Voted for %v"), rf.currentTerm, rf.me, args.CandidateID)
 	} else {
-		_, _ = DPrintf(Vote("Old Vote: Peer %v Voted for %v"), rf.me, rf.votedFor)
-		//_, _ = DPrintf(Vote("%v %v"), rf.votedFor, args.CandidateID)
+		_, _ = DPrintf(Vote("[T%v] %v: Old Vote: Voted for %v"), rf.currentTerm, rf.me, rf.votedFor)
 	}
 	rf.resetTTL()
 }
@@ -109,14 +112,14 @@ func (rf *Raft) leaderElection() {
 			//rf.mu.Unlock()
 			time.Sleep(time.Duration(50) * time.Millisecond)
 		} else /* (rf.state == Follower || rf.state == Candidate) && ttlElapsed */ {
-			_, _ = DPrintf(NewElection("Term: %v, Peer %v (%v -> %v)"), rf.currentTerm, rf.me, rf.state, Candidate)
 
-			rf.state = Candidate // 1. transitions to candidate state
+			_, _ = DPrintf(NewElection("[T%v] %v: (%v -> %v)"), rf.currentTerm, rf.me, rf.state, Candidate)
 			rf.currentTerm += 1  // 2. increments its current term
+			rf.state = Candidate // 1. transitions to candidate state
 			rf.votedFor = rf.me  // 3. votes for itself
 			rf.votesReceived = 1
 
-			_, _ = DPrintf(Vote("Peer %v Voted for %v (Itself)"), rf.me, rf.me)
+			_, _ = DPrintf(Vote("[T%v] %v: Voted for %v (Itself)"), rf.currentTerm, rf.me, rf.me)
 			rf.resetTTL()
 
 			// 4. issues RequestVote RPCs in parallel
@@ -146,6 +149,16 @@ func (rf *Raft) sendRequestAndProceed(peerNum int, voteArg *RequestVoteArgs) {
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	if voteReplay.Term > rf.currentTerm {
+		//_, _ = DPrintf(HeartBeat("%v[ []%]:Peer %v Received heartBeat from %v | Result: Request term (%v) > (%v) Current Term "), rf.me, args.LeaderId, args.Term, rf.currentTerm)
+
+		rf.currentTerm = voteReplay.Term
+		rf.state = Follower
+		rf.votedFor = -1
+		rf.votesReceived = 0
+		rf.resetTTL()
+		return
+	}
 
 	if voteReplay.VoteGranted {
 		rf.votesReceived++
@@ -154,7 +167,7 @@ func (rf *Raft) sendRequestAndProceed(peerNum int, voteArg *RequestVoteArgs) {
 		}
 		// (a) it wins the election
 		if rf.votesReceived >= (len(rf.peers)/2)+1 {
-			_, _ = DPrintf(NewLeader("New Leader = %v (%v/%v votes)"), rf.me, rf.votesReceived, len(rf.peers))
+			_, _ = DPrintf(NewLeader("[T%v] %v: New Leader! (%v/%v votes)"), rf.currentTerm, rf.me, rf.votesReceived, len(rf.peers))
 			rf.state = Leader
 			// send heartbeat messages to all of the other servers to establish its authority
 			go rf.sendHeartBeats()

@@ -24,7 +24,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// 0. If RPC received from new leader: convert to follower
 	if args.Term > rf.currentTerm {
-		_, _ = DPrintf(HeartBeat("Peer %v Received heartBeat from %v | Result: Request term (%v) > (%v) Current Term "), rf.me, args.LeaderId, args.Term, rf.currentTerm)
+		_, _ = DPrintf(HeartBeat("[T%v] %v: Received heartBeat from %v | Result: Request term (%v) > (%v) Current Term "), rf.currentTerm, rf.me, args.LeaderId, args.Term, rf.currentTerm)
 		rf.currentTerm = args.Term
 		rf.state = Follower
 		rf.votedFor = -1
@@ -35,7 +35,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// 1. Reply false if term < currentTerm (§5.1)
 	if args.Term < rf.currentTerm {
-		_, _ = DPrintf(HeartBeat("Peer %v Received heartBeat from %v | Result: Request term (%v) < (%v) Current Term "), rf.me, args.LeaderId, args.Term, rf.currentTerm)
+		_, _ = DPrintf(HeartBeat("[T%v] %v: Received heartBeat from %v | Reply False: Request term (%v) < (%v) Current Term "), rf.currentTerm, rf.me, args.LeaderId, args.Term, rf.currentTerm)
 		return
 	}
 	// 2. Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
@@ -43,8 +43,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// 3. If an existing entry conflicts with a new one (same index but different terms), delete the existing entry and all that follow it (§5.3)
 
 	// 4. Append any new entries not already in the log
-	if rf.state != Follower{
-		_, _ = DPrintf(NewFollower("Peer %v: %v -> %v"), rf.me, rf.state, Follower)
+	if rf.state != Follower {
+		_, _ = DPrintf(NewFollower("[T%v] %v:  %v -> %v"), rf.currentTerm, rf.me, rf.state, Follower)
 		rf.state = Follower
 	}
 
@@ -53,7 +53,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// 5. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
 	reply.Success = true
-	_, _ = DPrintf(HeartBeat("Peer %v Received heartBeat from %v | Result: Success! "), rf.me, args.LeaderId)
+	_, _ = DPrintf(HeartBeat("[T%v] %v: Received heartBeat from %v | Result: Success! "), rf.currentTerm, rf.me, args.LeaderId)
 	rf.resetTTL()
 }
 
@@ -61,7 +61,6 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return ok
 }
-
 
 func (rf *Raft) sendHeartBeats() {
 	for {
@@ -74,7 +73,7 @@ func (rf *Raft) sendHeartBeats() {
 			Entries:      nil,
 			LeaderCommit: 0,
 		}
-		if rf.state != Leader{
+		if rf.state != Leader {
 			return
 		}
 		for i := range rf.peers {
