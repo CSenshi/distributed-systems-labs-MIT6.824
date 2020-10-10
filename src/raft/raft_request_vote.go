@@ -41,7 +41,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	if args.Term > rf.currentTerm {
-		_, _ = DPrintf(Vote("[T%v -> T%v] %v: Transition to new Term"), rf.currentTerm, args.Term, rf.me)
+		_, _ = DPrintf(Vote("[T%v -> T%v] %v: Transition to new Term | Received Higher Term RequestVote"), rf.currentTerm, args.Term, rf.me)
 		rf.votedFor = -1
 		rf.currentTerm = args.Term
 		if rf.state != Follower { // ToDo: Revise this...
@@ -111,14 +111,22 @@ func (rf *Raft) leaderElection() {
 		}
 		if rf.state == Leader {
 			rf.mu.Unlock()
-			time.Sleep(time.Duration(50) * time.Millisecond)
+			time.Sleep(time.Duration(dummySleepNoElection) * time.Millisecond)
 		} else if !ttlElapsed /* && (rf.state == Follower || rf.state == Candidate) */ {
 			rf.mu.Unlock()
-			time.Sleep(time.Duration(50) * time.Millisecond)
+			time.Sleep(time.Duration(dummySleepNoElection) * time.Millisecond)
 		} else /* (rf.state == Follower || rf.state == Candidate) && ttlElapsed */ {
-			_, _ = DPrintf(NewElection("[T%v -> T%v] %v: (%v -> %v)"), rf.currentTerm, rf.currentTerm+1, rf.me, rf.state, Candidate)
+			// Just Debug Prints
+			if rf.state == Follower {
+				_, _ = DPrintf(NewElection("[T%v -> T%v] %v: (%v -> %v) Heartbeat Timeout!"), rf.currentTerm, rf.currentTerm+1, rf.me, rf.state, Candidate)
+			} else if rf.state == Candidate {
+				_, _ = DPrintf(NewElection("[T%v -> T%v] %v: (%v -> %v) Election Timeout!"), rf.currentTerm, rf.currentTerm+1, rf.me, rf.state, Candidate)
+			} else {
+				_, _ = DPrintf(NewElection("[T%v -> T%v] %v: (%v -> %v) WTF State?!"), rf.currentTerm, rf.currentTerm+1, rf.me, rf.state, Candidate)
+			}
 			_, _ = DPrintf(Vote("[T%v] %v: Voted for %v (Itself)"), rf.currentTerm+1, rf.me, rf.me)
 
+			// Actual Work
 			rf.currentTerm += 1  // 2. increments its current term
 			rf.state = Candidate // 1. transitions to candidate state
 			rf.votedFor = rf.me  // 3. votes for itself
