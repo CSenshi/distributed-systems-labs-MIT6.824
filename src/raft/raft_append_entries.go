@@ -24,7 +24,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// 0. If RPC received from new leader: convert to follower
 	if args.Term > rf.currentTerm {
-		_, _ = DPrintf(HeartBeat("[T%v] %v: Received heartBeat from %v | Result: Request term (%v) > (%v) Current Term "), rf.currentTerm, rf.me, args.LeaderId, args.Term, rf.currentTerm)
+		_, _ = DPrintf(HeartBeat("[T%v -> T%v] %v: Received heartBeat from %v | Result: Request term > Current Term"), rf.currentTerm, args.Term, rf.me, args.LeaderId)
 		rf.currentTerm = args.Term
 	}
 
@@ -39,7 +39,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// 4. Append any new entries not already in the log
 	if rf.state != Follower {
-		_, _ = DPrintf(NewFollower("[T%v] %v:  %v -> %v"), rf.currentTerm, rf.me, rf.state, Follower)
+		_, _ = DPrintf(NewFollower("[T%v] %v: %v -> %v"), rf.currentTerm, rf.me, rf.state, Follower)
 		rf.state = Follower
 	}
 
@@ -69,6 +69,9 @@ func (rf *Raft) sendHeartBeats() {
 			LeaderCommit: 0,
 		}
 		rf.mu.Unlock()
+		if rf.killed() {
+			return
+		}
 		if rf.state != Leader {
 			return
 		}

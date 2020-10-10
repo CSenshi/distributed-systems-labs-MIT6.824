@@ -24,12 +24,20 @@ var (
 	White   = Color("\033[1;37m%s\033[0m")
 )
 
+// Turn off Coloring when writing into  file
+const Coloring = 1
+
 func Color(colorString string) func(...interface{}) string {
-	sprint := func(args ...interface{}) string {
-		return fmt.Sprintf(colorString,
-			fmt.Sprint(args...))
+	if Coloring > 0 {
+		return func(args ...interface{}) string {
+			return fmt.Sprintf(colorString,
+				fmt.Sprint(args...))
+		}
+	} else {
+		return func(args ...interface{}) string {
+			return fmt.Sprint(args...)
+		}
 	}
-	return sprint
 }
 
 // Debugging
@@ -66,7 +74,7 @@ func (e State) String() string {
 
 // Min and Max TTLs for election (150, 300)
 const (
-	electionMinTTL   = 800
+	electionMinTTL   = 400
 	electionRangeTTL = 150
 
 	heartBeatInterval = 150
