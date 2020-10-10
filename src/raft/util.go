@@ -26,6 +26,7 @@ var (
 
 // Turn off Coloring when writing into  file
 const Coloring = 1
+
 // Debugging
 const Debug = 1
 
@@ -41,7 +42,6 @@ func Color(colorString string) func(...interface{}) string {
 		}
 	}
 }
-
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug > 0 {
@@ -77,6 +77,6 @@ const (
 	electionMinTTL   = 400
 	electionRangeTTL = 200
 
-	heartBeatInterval = 200
+	heartBeatInterval    = 200
 	dummySleepNoElection = 50
 )
