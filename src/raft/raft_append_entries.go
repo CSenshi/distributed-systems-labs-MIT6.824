@@ -26,11 +26,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.Term > rf.currentTerm {
 		_, _ = DPrintf(HeartBeat("[T%v] %v: Received heartBeat from %v | Result: Request term (%v) > (%v) Current Term "), rf.currentTerm, rf.me, args.LeaderId, args.Term, rf.currentTerm)
 		rf.currentTerm = args.Term
-		rf.state = Follower
-		rf.votedFor = -1
-		rf.votesReceived = 0
-		rf.resetTTL()
-		return
 	}
 
 	// 1. Reply false if term < currentTerm (§5.1)
@@ -73,6 +68,7 @@ func (rf *Raft) sendHeartBeats() {
 			Entries:      nil,
 			LeaderCommit: 0,
 		}
+		rf.mu.Unlock()
 		if rf.state != Leader {
 			return
 		}
@@ -81,9 +77,9 @@ func (rf *Raft) sendHeartBeats() {
 				continue
 			}
 			reply := &AppendEntriesReply{}
+
 			go rf.sendAppendEntries(i, args, reply)
 		}
-		rf.mu.Unlock()
 		time.Sleep(heartBeatInterval * time.Millisecond)
 	}
 }

@@ -6,12 +6,11 @@ import (
 )
 
 var (
-	Vote = Teal
-	NewLeader = Green
+	Vote        = Teal
+	NewLeader   = Green
 	NewElection = Red
-	HeartBeat = White
+	HeartBeat   = White
 	NewFollower = Yellow
-
 )
 
 var (
@@ -23,7 +22,6 @@ var (
 	Magenta = Color("\033[1;35m%s\033[0m")
 	Teal    = Color("\033[1;36m%s\033[0m")
 	White   = Color("\033[1;37m%s\033[0m")
-
 )
 
 func Color(colorString string) func(...interface{}) string {
@@ -68,7 +66,7 @@ func (e State) String() string {
 
 // Min and Max TTLs for election (150, 300)
 const (
-	electionMinTTL   = 400
+	electionMinTTL   = 800
 	electionRangeTTL = 150
 
 	heartBeatInterval = 150

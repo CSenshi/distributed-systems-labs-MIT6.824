@@ -40,21 +40,20 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
-	//if args.Term > rf.currentTerm {
-	//	rf.votedFor = -1
-	//	rf.currentTerm = args.Term
-	//	if rf.state != Follower { // once server becomes follower, it has to reset timer
-	//		rf.resetTTL()
-	//		rf.state = Follower
-	//	}
-	//	return
-	//}
+	if args.Term > rf.currentTerm {
+		rf.votedFor = -1
+		rf.currentTerm = args.Term
+		if rf.state != Follower { // ToDo: Revise this...
+			rf.resetTTL()
+			rf.state = Follower
+		}
+	}
 
 	// 2. If votedFor is null or candidateId, and candidate’s log is at
 	// 	  least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
 	if rf.votedFor == -1 || rf.votedFor == args.CandidateID /* ToDO: Check for log */ {
-		rf.currentTerm = args.Term
 		reply.VoteGranted = true
+		rf.currentTerm = args.Term
 		rf.votedFor = args.CandidateID
 		_, _ = DPrintf(Vote("[T%v] %v: New Vote: Voted for %v"), rf.currentTerm, rf.me, args.CandidateID)
 	} else {
@@ -102,14 +101,14 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 // will learn who is the leader, if there is already a leader, or become the leader itself.
 func (rf *Raft) leaderElection() {
 	for {
-		//rf.mu.Lock()
+		rf.mu.Lock()
 		ttlElapsed := rf.electionStartTime.Before(time.Now().Add(-rf.electionTTL))
 
 		if rf.state == Leader {
-			//rf.mu.Unlock()
+			rf.mu.Unlock()
 			time.Sleep(time.Duration(50) * time.Millisecond)
 		} else if !ttlElapsed /* && (rf.state == Follower || rf.state == Candidate) */ {
-			//rf.mu.Unlock()
+			rf.mu.Unlock()
 			time.Sleep(time.Duration(50) * time.Millisecond)
 		} else /* (rf.state == Follower || rf.state == Candidate) && ttlElapsed */ {
 
@@ -138,20 +137,22 @@ func (rf *Raft) leaderElection() {
 				// repeat during idle periods to prevent election timeouts (§5.2)
 				go rf.sendRequestAndProceed(i, voteArg)
 			}
-			//rf.mu.Unlock()
+			rf.mu.Unlock()
 		}
 	}
 }
 
 func (rf *Raft) sendRequestAndProceed(peerNum int, voteArg *RequestVoteArgs) {
 	voteReplay := RequestVoteReply{}
-	rf.sendRequestVote(peerNum, voteArg, &voteReplay)
-
+	ok := rf.sendRequestVote(peerNum, voteArg, &voteReplay)
+	if !ok {
+		_, _ = DPrintf(Red("Network Error! No connection to Peer %v"), peerNum)
+		return
+	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	if voteReplay.Term > rf.currentTerm {
-		//_, _ = DPrintf(HeartBeat("%v[ []%]:Peer %v Received heartBeat from %v | Result: Request term (%v) > (%v) Current Term "), rf.me, args.LeaderId, args.Term, rf.currentTerm)
 
+	if voteReplay.Term > rf.currentTerm {
 		rf.currentTerm = voteReplay.Term
 		rf.state = Follower
 		rf.votedFor = -1
