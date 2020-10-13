@@ -183,7 +183,7 @@ func (rf *Raft) sendRequestAndProceed(peerNum int, voteArg *RequestVoteArgs) {
 			_, _ = DPrintf(NewLeader("[T%v] %v: New Leader! (%v/%v votes) (%v -> %v)"), rf.currentTerm, rf.me, rf.votesReceived, len(rf.peers), rf.state, Leader)
 			rf.state = Leader
 			// send heartbeat messages to all of the other servers to establish its authority
-			go rf.sendHeartBeats()
+			go rf.sendPeriodicHeartBeats()
 		}
 	}
 }
