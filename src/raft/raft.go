@@ -47,7 +47,8 @@ type ApplyMsg struct {
 }
 
 type LogEntry struct {
-	//	ToDo: Fill
+	Command interface{}
+	Term    int
 }
 
 //
@@ -145,11 +146,18 @@ func (rf *Raft) readPersist(data []byte) {
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
-	// Your code here (2B).
+	index, term, isLeader := len(rf.log), rf.currentTerm, rf.state == Leader
+	if isLeader {
+		_, _ = DPrintf(NewLog("[T%v] %v: Received new log! {%v} "), rf.currentTerm, rf.currentTerm+1, command)
+
+		logEntry := LogEntry{Command: command, Term: rf.currentTerm}
+		rf.log = append(rf.log, logEntry)
+	} else {
+		//_, _ = DPrintf(NewLog("[T%v] %v: Received new log! {%v}, but not leader! "), rf.currentTerm, rf.currentTerm+1, command)
+	}
 
 	return index, term, isLeader
 }

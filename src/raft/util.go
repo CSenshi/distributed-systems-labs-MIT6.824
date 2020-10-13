@@ -6,11 +6,12 @@ import (
 )
 
 var (
-	Vote        = Teal
-	NewLeader   = Green
-	NewElection = Red
-	HeartBeat   = White
-	NewFollower = Yellow
+	Vote           = Teal
+	NewLeader      = Green
+	NewElection    = Red
+	AppendEntryLog = White
+	NewFollower    = Yellow
+	NewLog         = Purple
 )
 
 var (
@@ -25,10 +26,10 @@ var (
 )
 
 // Turn off Coloring when writing into  file
-const Coloring = 0
+const Coloring = 1
 
 // Debugging
-const Debug = 0
+const Debug = 1
 
 func Color(colorString string) func(...interface{}) string {
 	if Coloring > 0 {
