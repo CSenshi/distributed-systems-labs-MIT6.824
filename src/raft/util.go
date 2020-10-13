@@ -25,10 +25,10 @@ var (
 )
 
 // Turn off Coloring when writing into  file
-const Coloring = 1
+const Coloring = 0
 
 // Debugging
-const Debug = 1
+const Debug = 0
 
 func Color(colorString string) func(...interface{}) string {
 	if Coloring > 0 {

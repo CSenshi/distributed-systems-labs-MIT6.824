@@ -57,32 +57,36 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	return ok
 }
 
-func (rf *Raft) sendHeartBeats() {
+func (rf *Raft) sendPeriodicHeartBeats() {
 	for {
-		rf.mu.Lock()
-		args := &AppendEntriesArgs{
-			Term:         rf.currentTerm,
-			LeaderId:     rf.me,
-			PrevLogIndex: 0,
-			PrevLogTerm:  0,
-			Entries:      nil,
-			LeaderCommit: 0,
-		}
-		rf.mu.Unlock()
-		if rf.killed() {
-			return
-		}
-		if rf.state != Leader {
-			return
-		}
-		for i := range rf.peers {
-			if i == rf.me {
-				continue
-			}
-			reply := &AppendEntriesReply{}
+		oneHeartBeatsCycle := func() {
+			rf.mu.Lock()
+			defer rf.mu.Unlock()
 
-			go rf.sendAppendEntries(i, args, reply)
+			args := &AppendEntriesArgs{
+				Term:         rf.currentTerm,
+				LeaderId:     rf.me,
+				PrevLogIndex: 0,
+				PrevLogTerm:  0,
+				Entries:      nil,
+				LeaderCommit: 0,
+			}
+			if rf.killed() {
+				return
+			}
+			if rf.state != Leader {
+				return
+			}
+			for i := range rf.peers {
+				if i == rf.me {
+					continue
+				}
+				reply := &AppendEntriesReply{}
+
+				go rf.sendAppendEntries(i, args, reply)
+			}
+			time.Sleep(heartBeatInterval * time.Millisecond)
 		}
-		time.Sleep(heartBeatInterval * time.Millisecond)
+		oneHeartBeatsCycle()
 	}
 }
