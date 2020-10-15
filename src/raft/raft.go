@@ -18,6 +18,7 @@ package raft
 //
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -47,8 +48,17 @@ type ApplyMsg struct {
 }
 
 type LogEntry struct {
-	Command interface{}
-	Term    int
+	Command interface{} // State Machine Command
+	Term    int         // Term when the entry was received by the leade
+	// Index   int         // Index identifies entry's position in the log
+}
+
+func (entry LogEntry) String() string {
+	command := fmt.Sprintf("%v", entry.Command)
+	if len(command) > 20 {
+		command = command[:10] + "..." + command[len(command)-10:]
+	}
+	return fmt.Sprintf("{Command: %v, Term: %v}", command, entry.Term)
 }
 
 //
@@ -65,6 +75,7 @@ type Raft struct {
 	electionTTL       time.Duration // ttl timer
 	electionStartTime time.Time     // time when ttl reset happened
 	votesReceived     int           // when current peer is candidate this int is tracking number of votes received
+	applyChan         chan ApplyMsg // channel where all client's result should be returned
 
 	/* Taken From Frame 2 https://raft.github.io/raft.pdf */
 	// Persistent state on all servers (Updated on stable storage before responding to RPCs)
@@ -151,9 +162,9 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	index, term, isLeader := len(rf.log), rf.currentTerm, rf.state == Leader
 	if isLeader {
-		_, _ = DPrintf(NewLog("[T%v] %v: Received new log! {%v} "), rf.currentTerm, rf.currentTerm+1, command)
-
 		logEntry := LogEntry{Command: command, Term: rf.currentTerm}
+
+		_, _ = DPrintf(NewLog("[T%v] %v: Received new log! %+v "), rf.currentTerm, rf.currentTerm+1, logEntry)
 		rf.log = append(rf.log, logEntry)
 	} else {
 		//_, _ = DPrintf(NewLog("[T%v] %v: Received new log! {%v}, but not leader! "), rf.currentTerm, rf.currentTerm+1, command)
@@ -209,18 +220,19 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// Your initialization code here (2A, 2B, 2C).
 	rf.state = Follower // all raft servers should start as followers
-
 	rf.electionTTL = time.Millisecond * (time.Duration(electionMinTTL + rand.Intn(electionRangeTTL)))
 	rf.electionStartTime = time.Now()
+	rf.applyChan = applyCh
 
 	/* Persistent state on all servers */
 	rf.currentTerm = 0
 	rf.votedFor = -1
 	rf.log = make([]LogEntry, 0)
+	rf.log = append(rf.log, LogEntry{Command: nil, Term: 0}) // Append 0th nil command
 
 	/* Volatile state on all servers */
 	rf.commitIndex = 0
-	rf.lastApplied = -1
+	rf.lastApplied = 0
 
 	/* Volatile state on leaders */
 	rf.nextIndex = nil

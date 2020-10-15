@@ -127,7 +127,7 @@ func (rf *Raft) leaderElection() {
 			_, _ = DPrintf(Vote("[T%v] %v: Voted for %v (Itself)"), rf.currentTerm+1, rf.me, rf.me)
 
 			// Actual Work
-			rf.currentTerm += 1  // 2. increments its current term
+			rf.currentTerm++     // 2. increments its current term
 			rf.state = Candidate // 1. transitions to candidate state
 			rf.votedFor = rf.me  // 3. votes for itself
 			rf.votesReceived = 1
@@ -182,6 +182,13 @@ func (rf *Raft) sendRequestAndProceed(peerNum int, voteArg *RequestVoteArgs) {
 		if rf.votesReceived >= (len(rf.peers)/2)+1 {
 			_, _ = DPrintf(NewLeader("[T%v] %v: New Leader! (%v/%v votes) (%v -> %v)"), rf.currentTerm, rf.me, rf.votesReceived, len(rf.peers), rf.state, Leader)
 			rf.state = Leader
+
+			// Initialize all nextIndex values to the index just after the last one in its log
+			rf.nextIndex = make([]int, len(rf.peers))
+			rf.matchIndex = make([]int, len(rf.peers))
+			for i := range rf.nextIndex {
+				rf.nextIndex[i] = len(rf.log)
+			}
 			// send heartbeat messages to all of the other servers to establish its authority
 			go rf.sendPeriodicHeartBeats()
 		}
