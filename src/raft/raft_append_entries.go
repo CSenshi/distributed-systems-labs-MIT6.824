@@ -96,57 +96,93 @@ func (rf *Raft) sendPeriodicHeartBeats() {
 				return
 			}
 			go func() {
-				count := 1 // ToDo Change count calculation
 				for i := range rf.peers {
 					if i == rf.me {
 						continue
 					}
 
-					// Prepare RPC ARg/Reply
-					rf.mu.Lock()
-					args := &AppendEntriesArgs{
-						Term:         rf.currentTerm,
-						LeaderID:     rf.me,
-						PrevLogIndex: 0,   // Fill Below
-						PrevLogTerm:  0,   // Fill Below
-						Entries:      nil, // Fill Below
-						LeaderCommit: rf.commitIndex,
-					}
-					args.PrevLogIndex = rf.nextIndex[i] - 1
-					args.PrevLogTerm = rf.log[args.PrevLogIndex].Term
-					args.Entries = rf.log[rf.nextIndex[i]:]
-
+					// Prepare RPC Arg/Reply
+					args := rf.createAppendEntriesArgs(i)
 					reply := &AppendEntriesReply{}
-					rf.mu.Unlock()
 
 					// RPC Send Request
 					ok := rf.sendAppendEntries(i, args, reply)
-
-					// Evaluate RPC Result
-					rf.mu.Lock()
 					if !ok {
 						_, _ = DPrintf(Red("Network Error! No connection to Peer %v"), i)
-						rf.mu.Unlock()
 						return
 					}
 
-					if !reply.Success {
-						rf.nextIndex[i]--
-					} else if len(args.Entries) > 0 {
-						rf.matchIndex[i] = args.PrevLogIndex + len(args.Entries)
-						rf.nextIndex[i] = rf.matchIndex[i] + 1
-						count++
-						if count > len(rf.peers)/2 {
-							rf.commitIndex = rf.nextIndex[i] - 1
-							go rf.commitLogEntries()
-						}
-					}
-					rf.mu.Unlock()
+					// Evaluate RPC Result
+					rf.processAppendEntriesReply(i, args, reply)
 				}
 			}()
 		}
 		oneHeartBeatsCycle()
 		time.Sleep(heartBeatInterval * time.Millisecond)
+	}
+}
+
+func (rf *Raft) createAppendEntriesArgs(i int) *AppendEntriesArgs {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	args := &AppendEntriesArgs{
+		Term:         rf.currentTerm,
+		LeaderID:     rf.me,
+		PrevLogIndex: 0,   // Fill Below
+		PrevLogTerm:  0,   // Fill Below
+		Entries:      nil, // Fill Below
+		LeaderCommit: rf.commitIndex,
+	}
+	args.PrevLogIndex = rf.nextIndex[i] - 1
+	args.PrevLogTerm = rf.log[args.PrevLogIndex].Term
+	args.Entries = rf.log[rf.nextIndex[i]:]
+	return args
+}
+
+func (rf *Raft) processAppendEntriesReply(i int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	if !reply.Success {
+		// If AppendEntries fails because of log inconsistency: decrement nextIndex and retry
+		// ToDo: Can be optimised (Get index from followers)
+		rf.nextIndex[i]--
+	} else {
+		// If successful: update nextIndex and matchIndex for follower
+		rf.matchIndex[i] = args.PrevLogIndex + len(args.Entries)
+		rf.nextIndex[i] = rf.matchIndex[i] + 1
+	}
+
+	// 	If there exists an N such that
+	//		1. N > commitIndex,
+	//		2. a majority of matchIndex[i] ≥ N
+	//  	3. log[N].term == currentTerm:
+	// 	set commitIndex = N
+	for N := len(rf.log) - 1; N > rf.commitIndex; N-- { // Check 1: Iterate until commitIndex
+		// Check 3: Term
+		if rf.log[N].Term != rf.currentTerm {
+			continue
+		}
+
+		// Check 2:  majority
+		count := 1 // Self is already in the match index
+		for j := range rf.peers {
+			if j == rf.me {
+				continue
+			}
+			if rf.matchIndex[j] < N {
+				continue
+			}
+
+			count++
+			if count > len(rf.peers)/2 {
+				rf.commitIndex = N
+				go rf.commitLogEntries()
+				break
+			}
+
+		}
 	}
 }
 
@@ -159,7 +195,7 @@ func (rf *Raft) commitLogEntries() {
 	}
 
 	for i := rf.lastApplied + 1; i <= rf.commitIndex; i++ {
-		DPrintf(NewLog("[T%v] %v: Commiting Log #%v %v"), rf.currentTerm, rf.me, i, rf.log[i])
+		_, _ = DPrintf(NewLog("[T%v] %v: Committing Log #%v %v"), rf.currentTerm, rf.me, i, rf.log[i])
 		rf.applyChan <- ApplyMsg{CommandIndex: i, CommandValid: true, Command: rf.log[i].Command}
 	}
 	rf.lastApplied = rf.commitIndex
