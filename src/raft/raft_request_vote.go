@@ -40,19 +40,26 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
+	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
 	if args.Term > rf.currentTerm {
 		_, _ = DPrintf(Vote("[T%v -> T%v] %v: Transition to new Term | Received Higher Term RequestVote"), rf.currentTerm, args.Term, rf.me)
 		rf.votedFor = -1
 		rf.currentTerm = args.Term
-		if rf.state != Follower { // ToDo: Revise this...
-			rf.resetTTL()
-			rf.state = Follower
-		}
+		rf.state = Follower
 	}
 
-	// 2. If votedFor is null or candidateId, and candidate’s log is at
-	// 	  least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
-	if rf.votedFor == -1 || rf.votedFor == args.CandidateID /* ToDO: Check for log */ {
+	/* 2. If
+	 *		1. votedFor is null or candidateId
+	 *		2. candidate’s log is at least as up-to-date as receiver’s log
+	 *	grant vote (§5.2, §5.4)
+	 */
+
+	// Check 1
+	voteCheck := rf.votedFor == -1 || rf.votedFor == args.CandidateID
+	// Check 2
+	logCheck := (args.LastLogTerm == rf.log[len(rf.log)-1].Term) ||
+		(args.LastLogTerm > rf.log[len(rf.log)-1].Term && args.LastLogIndex >= len(rf.log)-1)
+	if voteCheck && logCheck {
 		reply.VoteGranted = true
 		_, _ = DPrintf(Vote("[T%v] %v: New Vote: Voted for %v"), rf.currentTerm, rf.me, args.CandidateID)
 		rf.currentTerm = args.Term
@@ -137,8 +144,8 @@ func (rf *Raft) leaderElection() {
 			voteArg := &RequestVoteArgs{
 				Term:         rf.currentTerm,
 				CandidateID:  rf.me,
-				LastLogIndex: -1, // ToDo: Change
-				LastLogTerm:  -1, // ToDo: Change
+				LastLogIndex: len(rf.log) - 1,
+				LastLogTerm:  rf.log[len(rf.log)-1].Term,
 			}
 
 			for i := range rf.peers {

@@ -190,10 +190,12 @@ func (rf *Raft) commitLogEntries() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	// checking for 0th (nil command should not be aplied)
 	if len(rf.log) < 2 {
 		return
 	}
 
+	// If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
 	for i := rf.lastApplied + 1; i <= rf.commitIndex; i++ {
 		_, _ = DPrintf(NewLog("[T%v] %v: Committing Log #%v %v"), rf.currentTerm, rf.me, i, rf.log[i])
 		rf.applyChan <- ApplyMsg{CommandIndex: i, CommandValid: true, Command: rf.log[i].Command}

@@ -29,7 +29,7 @@ var (
 const Coloring = 1
 
 // Debugging
-const Debug = 1
+const Debug = 0
 
 func Color(colorString string) func(...interface{}) string {
 	if Coloring > 0 {
