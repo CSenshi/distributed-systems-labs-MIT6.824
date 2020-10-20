@@ -6,68 +6,66 @@ import (
 )
 
 var (
-	Vote           = Teal
-	NewLeader      = Green
-	NewElection    = Red
-	AppendEntryLog = White
-	NewFollower    = Yellow
-	NewLog         = Purple
+	vote           = teal
+	newLeader      = green
+	newElection    = red
+	appendEntryLog = white
+	newFollower    = yellow
+	newLog         = purple
 )
 
 var (
-	Black   = Color("\033[1;30m%s\033[0m")
-	Red     = Color("\033[1;31m%s\033[0m")
-	Green   = Color("\033[1;32m%s\033[0m")
-	Yellow  = Color("\033[1;33m%s\033[0m")
-	Purple  = Color("\033[1;34m%s\033[0m")
-	Magenta = Color("\033[1;35m%s\033[0m")
-	Teal    = Color("\033[1;36m%s\033[0m")
-	White   = Color("\033[1;37m%s\033[0m")
+	black   = Color("\033[1;30m%s\033[0m")
+	red     = Color("\033[1;31m%s\033[0m")
+	green   = Color("\033[1;32m%s\033[0m")
+	yellow  = Color("\033[1;33m%s\033[0m")
+	purple  = Color("\033[1;34m%s\033[0m")
+	magenta = Color("\033[1;35m%s\033[0m")
+	teal    = Color("\033[1;36m%s\033[0m")
+	white   = Color("\033[1;37m%s\033[0m")
 )
 
-// Turn off Coloring when writing into  file
-const Coloring = 1
+const coloring = 1 // if coloring > 0 then: color output
+const debug = 0    // if debug > 0 then: print debug logs
 
-// Debugging
-const Debug = 0
-
+// Color function takes interface that sprintfs given string and colors
 func Color(colorString string) func(...interface{}) string {
-	if Coloring > 0 {
+	if coloring > 0 {
 		return func(args ...interface{}) string {
 			return fmt.Sprintf(colorString,
 				fmt.Sprint(args...))
 		}
-	} else {
-		return func(args ...interface{}) string {
-			return fmt.Sprint(args...)
-		}
+	}
+	return func(args ...interface{}) string {
+		return fmt.Sprint(args...)
 	}
 }
 
+// DPrintf prints on stdout when Debug > 1
 func DPrintf(format string, a ...interface{}) (n int, err error) {
-	if Debug > 0 {
+	if debug > 0 {
 		log.Printf(format, a...)
 	}
 	return
 }
 
-// State of Raft
+// State of Raft can be one of 3 that are described below
 type State int
 
 const (
-	Leader    State = iota
-	Follower  State = iota
-	Candidate State = iota
+	leader    State = iota
+	follower  State = iota
+	candidate State = iota
 )
 
 func (e State) String() string {
 	switch e {
-	case Leader:
-		return "Leader"
-	case Follower:
-		return "Follower"
-	case Candidate:
-		return "Candidate"
+	case leader:
+		return "leaderState"
+	case follower:
+		return "followerState"
+	case candidate:
+		return "candidateState"
 	default:
 		return fmt.Sprintf("Undefined State:%d", int(e))
 	}

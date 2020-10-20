@@ -31,7 +31,7 @@ import (
 // import "../labgob"
 
 //
-// as each Raft peer becomes aware that successive log entries are
+// ApplyMsg - as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
 // tester) on the same server, via the applyCh passed to Make(). set
 // CommandValid to true to indicate that the ApplyMsg contains a newly
@@ -47,10 +47,10 @@ type ApplyMsg struct {
 	CommandIndex int
 }
 
+// LogEntry Struct to contain each log that server received
 type LogEntry struct {
 	Command interface{} // State Machine Command
 	Term    int         // Term when the entry was received by the leade
-	// Index   int         // Index identifies entry's position in the log
 }
 
 func (entry LogEntry) String() string {
@@ -62,7 +62,7 @@ func (entry LogEntry) String() string {
 }
 
 //
-// A Go object implementing a single Raft peer.
+//Raft - A Go object implementing a single Raft peer.
 //
 type Raft struct {
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
@@ -92,14 +92,14 @@ type Raft struct {
 	matchIndex []int //for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
 }
 
-// return currentTerm and whether this server
+// GetState returns currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
 	var term = rf.currentTerm
-	var isLeader = rf.state == Leader
+	var isLeader = rf.state == leader
 
 	return term, isLeader
 }
@@ -143,7 +143,7 @@ func (rf *Raft) readPersist(data []byte) {
 }
 
 //
-// the service using Raft (e.g. a k/v server) wants to start
+// Start - the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
 // server isn't the leader, returns false. otherwise start the
 // agreement and return immediately. there is no guarantee that this
@@ -160,11 +160,11 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	index, term, isLeader := len(rf.log), rf.currentTerm, rf.state == Leader
+	index, term, isLeader := len(rf.log), rf.currentTerm, rf.state == leader
 	if isLeader {
 		logEntry := LogEntry{Command: command, Term: rf.currentTerm}
 
-		_, _ = DPrintf(NewLog("[T%v] %v: Received new log! %+v "), rf.currentTerm, rf.currentTerm+1, logEntry)
+		_, _ = DPrintf(newLog("[T%v] %v: Received new log! %+v "), rf.currentTerm, rf.currentTerm+1, logEntry)
 		rf.log = append(rf.log, logEntry)
 	} else {
 		//_, _ = DPrintf(NewLog("[T%v] %v: Received new log! {%v}, but not leader! "), rf.currentTerm, rf.currentTerm+1, command)
@@ -174,7 +174,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 }
 
 //
-// the tester doesn't halt goroutines created by Raft after each test,
+// Kill - the tester doesn't halt goroutines created by Raft after each test,
 // but it does call the Kill() method. your code can use killed() to
 // check whether Kill() has been called. the use of atomic avoids the
 // need for a lock.
@@ -200,7 +200,7 @@ func (rf *Raft) resetTTL() {
 }
 
 //
-// the service or tester wants to create a Raft server. the ports
+// Make - the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
 // server's port is peers[me]. all the servers' peers[] arrays
 // have the same order. persister is a place for this server to
@@ -219,7 +219,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
-	rf.state = Follower // all raft servers should start as followers
+	rf.state = follower // all raft servers should start as followers
 	rf.electionTTL = time.Millisecond * (time.Duration(electionMinTTL + rand.Intn(electionRangeTTL)))
 	rf.electionStartTime = time.Now()
 	rf.applyChan = applyCh

@@ -4,6 +4,7 @@ import (
 	"time"
 )
 
+// AppendEntriesArgs struct for AppendEntries RPC call Argument
 type AppendEntriesArgs struct {
 	Term         int        // leader’s term
 	LeaderID     int        // so follower can redirect clients
@@ -13,11 +14,13 @@ type AppendEntriesArgs struct {
 	LeaderCommit int        // leader’s commitIndex
 }
 
+// AppendEntriesReply struct for AppendEntries RPC call Reply
 type AppendEntriesReply struct {
 	Term    int  // currentTerm, for leader to update itself
 	Success bool // true if follower contained entry matching PrevLogIndex and PrevLogTerm
 }
 
+// AppendEntries RPC call on client Side
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -26,24 +29,24 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// 0. If RPC received from new leader: convert to follower
 	if args.Term > rf.currentTerm {
-		_, _ = DPrintf(AppendEntryLog("[T%v -> T%v] %v: Received AppendEntry from %v | Result: Request term > Current Term"), rf.currentTerm, args.Term, rf.me, args.LeaderID)
+		_, _ = DPrintf(appendEntryLog("[T%v -> T%v] %v: Received AppendEntry from %v | Result: Request term > Current Term"), rf.currentTerm, args.Term, rf.me, args.LeaderID)
 		rf.currentTerm = args.Term
 	}
 
 	// 1. Reply false if term < currentTerm (§5.1)
 	if args.Term < rf.currentTerm {
-		_, _ = DPrintf(AppendEntryLog("[T%v] %v: Received AppendEntry from %v | Reply False: Request term (%v) < (%v) Current Term "), rf.currentTerm, rf.me, args.LeaderID, args.Term, rf.currentTerm)
+		_, _ = DPrintf(appendEntryLog("[T%v] %v: Received AppendEntry from %v | Reply False: Request term (%v) < (%v) Current Term "), rf.currentTerm, rf.me, args.LeaderID, args.Term, rf.currentTerm)
 		return
 	}
 
 	// 2. Reply false if log doesnt contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
 	lastLogIndex := len(rf.log) - 1
 	if lastLogIndex < args.PrevLogIndex {
-		_, _ = DPrintf(AppendEntryLog("[T%v] %v: Received AppendEntry from %v | Reply False: Peer doesn't have log with index:%v  maxIndex:%v"), rf.currentTerm, rf.me, args.LeaderID, args.PrevLogIndex, len(rf.log)-1)
+		_, _ = DPrintf(appendEntryLog("[T%v] %v: Received AppendEntry from %v | Reply False: Peer doesn't have log with index:%v  maxIndex:%v"), rf.currentTerm, rf.me, args.LeaderID, args.PrevLogIndex, len(rf.log)-1)
 		return
 	}
 	if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
-		_, _ = DPrintf(AppendEntryLog("[T%v] %v: Received AppendEntry from %v | Reply False: Log's term (%v) < (%v) Current Term "), rf.currentTerm, rf.me, args.LeaderID, args.Term, rf.currentTerm)
+		_, _ = DPrintf(appendEntryLog("[T%v] %v: Received AppendEntry from %v | Reply False: Log's term (%v) < (%v) Current Term "), rf.currentTerm, rf.me, args.LeaderID, args.Term, rf.currentTerm)
 		return
 	}
 
@@ -52,14 +55,14 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// 4. Append any new entries not already in the log
 	for i, entry := range args.Entries {
-		_, _ = DPrintf(AppendEntryLog("[T%v] %v: ________ Appending log %v: %+v "), rf.currentTerm, rf.me, i, entry)
+		_, _ = DPrintf(appendEntryLog("[T%v] %v: ________ Appending log %v: %+v "), rf.currentTerm, rf.me, i, entry)
 		rf.log = append(rf.log, entry)
 	}
 
 	// Here comes only followers
-	if rf.state != Follower {
-		_, _ = DPrintf(NewFollower("[T%v] %v: %v -> %v"), rf.currentTerm, rf.me, rf.state, Follower)
-		rf.state = Follower
+	if rf.state != follower {
+		_, _ = DPrintf(newFollower("[T%v] %v: %v -> %v"), rf.currentTerm, rf.me, rf.state, follower)
+		rf.state = follower
 	}
 	rf.votedFor = -1
 	rf.votesReceived = 0
@@ -74,7 +77,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		go rf.commitLogEntries()
 	}
 	reply.Success = true
-	_, _ = DPrintf(AppendEntryLog("[T%v] %v: Received AppendEntry from %v | Result: Success! "), rf.currentTerm, rf.me, args.LeaderID)
+	_, _ = DPrintf(appendEntryLog("[T%v] %v: Received AppendEntry from %v | Result: Success! "), rf.currentTerm, rf.me, args.LeaderID)
 	rf.resetTTL()
 }
 
@@ -92,7 +95,7 @@ func (rf *Raft) sendPeriodicHeartBeats() {
 			if rf.killed() {
 				return
 			}
-			if rf.state != Leader {
+			if rf.state != leader {
 				return
 			}
 			go func() {
@@ -108,7 +111,7 @@ func (rf *Raft) sendPeriodicHeartBeats() {
 					// RPC Send Request
 					ok := rf.sendAppendEntries(i, args, reply)
 					if !ok {
-						_, _ = DPrintf(Red("Network Error! No connection to Peer %v"), i)
+						_, _ = DPrintf(red("Network Error! No connection to Peer %v"), i)
 						return
 					}
 
@@ -197,7 +200,7 @@ func (rf *Raft) commitLogEntries() {
 
 	// If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
 	for i := rf.lastApplied + 1; i <= rf.commitIndex; i++ {
-		_, _ = DPrintf(NewLog("[T%v] %v: Committing Log #%v %v"), rf.currentTerm, rf.me, i, rf.log[i])
+		_, _ = DPrintf(newLog("[T%v] %v: Committing Log #%v %v"), rf.currentTerm, rf.me, i, rf.log[i])
 		rf.applyChan <- ApplyMsg{CommandIndex: i, CommandValid: true, Command: rf.log[i].Command}
 	}
 	rf.lastApplied = rf.commitIndex

@@ -2,31 +2,21 @@ package raft
 
 import "time"
 
-//
-// example RequestVote RPC arguments structure.
-// field names must start with capital letters!
-//
+// RequestVoteArgs struct for RequestVote RPC call Argument
 type RequestVoteArgs struct {
-	// Your data here (2A, 2B).
 	Term         int // candidate’s term
 	CandidateID  int // candidate requesting vote
 	LastLogIndex int // index of candidate’s last log entry (§5.4)
 	LastLogTerm  int // term of candidate’s last log entry (§5.4)
 }
 
-//
-// example RequestVote RPC reply structure.
-// field names must start with capital letters!
-//
+// RequestVoteReply struct for RequestVote RPC call Reply
 type RequestVoteReply struct {
-	// Your data here (2A).
 	Term        int  // currentTerm, for candidate to update itself
 	VoteGranted bool // true means candidate received vote
 }
 
-//
-// example RequestVote RPC handler.
-//
+// RequestVote RPC call on client Side
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -36,16 +26,16 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	// 1. Reply false if term < currentTerm (§5.1)
 	if args.Term < rf.currentTerm {
-		_, _ = DPrintf(Vote("[T%v] %v: Discarded Vote: did not vote for %v"), rf.currentTerm, rf.me, args.CandidateID)
+		_, _ = DPrintf(vote("[T%v] %v: Discarded Vote: did not vote for %v"), rf.currentTerm, rf.me, args.CandidateID)
 		return
 	}
 
 	// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
 	if args.Term > rf.currentTerm {
-		_, _ = DPrintf(Vote("[T%v -> T%v] %v: Transition to new Term | Received Higher Term RequestVote"), rf.currentTerm, args.Term, rf.me)
+		_, _ = DPrintf(vote("[T%v -> T%v] %v: Transition to new Term | Received Higher Term RequestVote"), rf.currentTerm, args.Term, rf.me)
 		rf.votedFor = -1
 		rf.currentTerm = args.Term
-		rf.state = Follower
+		rf.state = follower
 	}
 
 	/* 2. If
@@ -61,11 +51,11 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		(args.LastLogTerm > rf.log[len(rf.log)-1].Term && args.LastLogIndex >= len(rf.log)-1)
 	if voteCheck && logCheck {
 		reply.VoteGranted = true
-		_, _ = DPrintf(Vote("[T%v] %v: New Vote: Voted for %v"), rf.currentTerm, rf.me, args.CandidateID)
+		_, _ = DPrintf(vote("[T%v] %v: New Vote: Voted for %v"), rf.currentTerm, rf.me, args.CandidateID)
 		rf.currentTerm = args.Term
 		rf.votedFor = args.CandidateID
 	} else {
-		_, _ = DPrintf(Vote("[T%v] %v: Old Vote: Voted for %v"), rf.currentTerm, rf.me, rf.votedFor)
+		_, _ = DPrintf(vote("[T%v] %v: Old Vote: Voted for %v"), rf.currentTerm, rf.me, rf.votedFor)
 	}
 	rf.resetTTL()
 }
@@ -116,26 +106,26 @@ func (rf *Raft) leaderElection() {
 			rf.mu.Unlock()
 			return
 		}
-		if rf.state == Leader {
+		if rf.state == leader {
 			rf.mu.Unlock()
 			time.Sleep(time.Duration(dummySleepNoElection) * time.Millisecond)
-		} else if !ttlElapsed /* && (rf.state == Follower || rf.state == Candidate) */ {
+		} else if !ttlElapsed /* && (rf.state == followerState || rf.state == candidateState) */ {
 			rf.mu.Unlock()
 			time.Sleep(time.Duration(dummySleepNoElection) * time.Millisecond)
-		} else /* (rf.state == Follower || rf.state == Candidate) && ttlElapsed */ {
+		} else /* (rf.state == followerState || rf.state == candidateState) && ttlElapsed */ {
 			// Just Debug Prints
-			if rf.state == Follower {
-				_, _ = DPrintf(NewElection("[T%v -> T%v] %v: (%v -> %v) Heartbeat Timeout!"), rf.currentTerm, rf.currentTerm+1, rf.me, rf.state, Candidate)
-			} else if rf.state == Candidate {
-				_, _ = DPrintf(NewElection("[T%v -> T%v] %v: (%v -> %v) Election Timeout!"), rf.currentTerm, rf.currentTerm+1, rf.me, rf.state, Candidate)
+			if rf.state == follower {
+				_, _ = DPrintf(newElection("[T%v -> T%v] %v: (%v -> %v) Heartbeat Timeout!"), rf.currentTerm, rf.currentTerm+1, rf.me, rf.state, candidate)
+			} else if rf.state == candidate {
+				_, _ = DPrintf(newElection("[T%v -> T%v] %v: (%v -> %v) Election Timeout!"), rf.currentTerm, rf.currentTerm+1, rf.me, rf.state, candidate)
 			} else {
-				_, _ = DPrintf(NewElection("[T%v -> T%v] %v: (%v -> %v) WTF State?!"), rf.currentTerm, rf.currentTerm+1, rf.me, rf.state, Candidate)
+				_, _ = DPrintf(newElection("[T%v -> T%v] %v: (%v -> %v) WTF State?!"), rf.currentTerm, rf.currentTerm+1, rf.me, rf.state, candidate)
 			}
-			_, _ = DPrintf(Vote("[T%v] %v: Voted for %v (Itself)"), rf.currentTerm+1, rf.me, rf.me)
+			_, _ = DPrintf(vote("[T%v] %v: Voted for %v (Itself)"), rf.currentTerm+1, rf.me, rf.me)
 
 			// Actual Work
 			rf.currentTerm++     // 2. increments its current term
-			rf.state = Candidate // 1. transitions to candidate state
+			rf.state = candidate // 1. transitions to candidate state
 			rf.votedFor = rf.me  // 3. votes for itself
 			rf.votesReceived = 1
 			rf.resetTTL()
@@ -165,7 +155,7 @@ func (rf *Raft) sendRequestAndProceed(peerNum int, voteArg *RequestVoteArgs) {
 	voteReplay := RequestVoteReply{}
 	ok := rf.sendRequestVote(peerNum, voteArg, &voteReplay)
 	if !ok {
-		_, _ = DPrintf(Red("Network Error! No connection to Peer %v"), peerNum)
+		_, _ = DPrintf(red("Network Error! No connection to Peer %v"), peerNum)
 		return
 	}
 	rf.mu.Lock()
@@ -173,7 +163,7 @@ func (rf *Raft) sendRequestAndProceed(peerNum int, voteArg *RequestVoteArgs) {
 
 	if voteReplay.Term > rf.currentTerm {
 		rf.currentTerm = voteReplay.Term
-		rf.state = Follower
+		rf.state = follower
 		rf.votedFor = -1
 		rf.votesReceived = 0
 		rf.resetTTL()
@@ -182,13 +172,13 @@ func (rf *Raft) sendRequestAndProceed(peerNum int, voteArg *RequestVoteArgs) {
 
 	if voteReplay.VoteGranted {
 		rf.votesReceived++
-		if rf.state == Leader {
+		if rf.state == leader {
 			return
 		}
 		// (a) it wins the election
 		if rf.votesReceived >= (len(rf.peers)/2)+1 {
-			_, _ = DPrintf(NewLeader("[T%v] %v: New Leader! (%v/%v votes) (%v -> %v)"), rf.currentTerm, rf.me, rf.votesReceived, len(rf.peers), rf.state, Leader)
-			rf.state = Leader
+			_, _ = DPrintf(newLeader("[T%v] %v: New leaderState! (%v/%v votes) (%v -> %v)"), rf.currentTerm, rf.me, rf.votesReceived, len(rf.peers), rf.state, leader)
+			rf.state = leader
 
 			// Initialize all nextIndex values to the index just after the last one in its log
 			rf.nextIndex = make([]int, len(rf.peers))
