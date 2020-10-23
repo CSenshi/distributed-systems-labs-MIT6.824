@@ -164,13 +164,31 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	if isLeader {
 		logEntry := LogEntry{Command: command, Term: rf.currentTerm}
 
-		_, _ = DPrintf(newLog("[T%v] %v: Received new log! %+v "), rf.currentTerm, rf.currentTerm+1, logEntry)
+		_, _ = DPrintf(newLog("[T%v] %v: Received new log! #%v %+v "), rf.currentTerm, rf.me, len(rf.log), logEntry)
 		rf.log = append(rf.log, logEntry)
 	} else {
 		//_, _ = DPrintf(NewLog("[T%v] %v: Received new log! {%v}, but not leader! "), rf.currentTerm, rf.currentTerm+1, command)
 	}
 
 	return index, term, isLeader
+}
+
+// Commit entries into the apply channel
+func (rf *Raft) commitLogEntries() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	// checking for 0th (nil command should not be aplied)
+	if len(rf.log) < 2 {
+		return
+	}
+
+	// If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
+	for i := rf.lastApplied + 1; i <= rf.commitIndex; i++ {
+		_, _ = DPrintf(newLog("[T%v] %v: Committing Log #%v %v"), rf.currentTerm, rf.me, i, rf.log[i])
+		rf.applyChan <- ApplyMsg{CommandIndex: i, CommandValid: true, Command: rf.log[i].Command}
+	}
+	rf.lastApplied = rf.commitIndex
 }
 
 //
@@ -185,7 +203,11 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 // should call killed() to check whether it should stop.
 //
 func (rf *Raft) Kill() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	_, _ = DPrintf(red("[T%v] %v: Server Killed!!! "), rf.currentTerm, rf.me)
 	atomic.StoreInt32(&rf.dead, 1)
+
 	// Your code here, if desired.
 }
 
@@ -226,7 +248,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	/* Persistent state on all servers */
 	rf.currentTerm = 0
-	rf.votedFor = -1
+	rf.votedFor = noVote
 	rf.log = make([]LogEntry, 0)
 	rf.log = append(rf.log, LogEntry{Command: nil, Term: 0}) // Append 0th nil command
 

@@ -1,8 +1,8 @@
-FILE_A=result_a.txt
+FILE=result.txt
 
 # Test 2A
-echo '' >${FILE_A}
+echo '' >${FILE}
 for i in {1..100}; do
   echo "Retry ${i}"
-  go test -run 2A -race | tee -a ${FILE_A}
+  go test -run '(2A|2B)' -race | tee -a ${FILE}
 done

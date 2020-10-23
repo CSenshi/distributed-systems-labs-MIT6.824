@@ -25,7 +25,7 @@ var (
 	white   = Color("\033[1;37m%s\033[0m")
 )
 
-const coloring = 1 // if coloring > 0 then: color output
+const coloring = 0 // if coloring > 0 then: color output
 const debug = 0    // if debug > 0 then: print debug logs
 
 // Color function takes interface that sprintfs given string and colors
@@ -56,16 +56,17 @@ const (
 	leader    State = iota
 	follower  State = iota
 	candidate State = iota
+	noVote          = -1 // Used for rf.VotedFor (when not yet voted)
 )
 
 func (e State) String() string {
 	switch e {
 	case leader:
-		return "leaderState"
+		return "Leader"
 	case follower:
-		return "followerState"
+		return "Follower"
 	case candidate:
-		return "candidateState"
+		return "Candidate"
 	default:
 		return fmt.Sprintf("Undefined State:%d", int(e))
 	}
