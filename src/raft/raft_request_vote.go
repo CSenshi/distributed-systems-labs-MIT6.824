@@ -142,13 +142,15 @@ func (rf *Raft) leaderElection() {
 			rf.resetTTL()
 
 			// 4. issues RequestVote RPCs in parallel (§5.1)
+
+			// Prepare RPC Arg
+			args := rf.createRequestVoteArgs()
 			for i := range rf.peers {
 				if i == rf.me {
 					continue
 				}
-				go func(peer int) {
-					// Prepare RPC Arg/Reply
-					args := rf.createRequestVoteArgs()
+				go func(peer int, args *RequestVoteArgs) {
+					// Prepare RPC Reply
 					reply := &RequestVoteReply{}
 
 					// RPC Send Request
@@ -162,7 +164,7 @@ func (rf *Raft) leaderElection() {
 
 					// Evaluate RPC Result
 					rf.processRequestVoteReply(peer, args, reply)
-				}(i)
+				}(i, args)
 			}
 			rf.mu.Unlock()
 		}
@@ -171,9 +173,6 @@ func (rf *Raft) leaderElection() {
 
 // Create Request Vote RPC Argument
 func (rf *Raft) createRequestVoteArgs() *RequestVoteArgs {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-
 	return &RequestVoteArgs{
 		Term:         rf.currentTerm,
 		CandidateID:  rf.me,
