@@ -7,7 +7,7 @@ import (
 
 var (
 	makeMasterRequest = green
-	networkError      = red
+	fail              = red
 )
 
 var (

@@ -3,9 +3,13 @@ package mr
 import (
 	"fmt"
 	"hash/fnv"
+	"io/ioutil"
 	"log"
 	"net/rpc"
+	"os"
 )
+
+const REDUCE_TASK_NAME = "mr-out-%d"
 
 //
 // Map functions return a slice of KeyValue.
@@ -38,10 +42,46 @@ func Worker(mapf func(string, string) []KeyValue,
 	// 2. Send RPC
 	ok := sendRequestTaskRPC(&args, &reply)
 	if !ok {
-		DPrintf(networkError("No Connection: sendRequestTask | worker -> master"))
+		DPrintf(fail("No Connection: sendRequestTask | worker -> master"))
 	}
 
 	// 3. Process RPC Reply
+	processRequestTaskReply(&args, &reply, mapf, reducef)
+}
+
+func processRequestTaskReply(args *RequestTaskArgs, reply *RequestTaskReply,
+	mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+
+	DPrintf("Worker Received Task: %v", reply)
+
+	// 1. Open file which master provided
+	file, err := os.Open(reply.FileName)
+	if err != nil {
+		DPrintf(fail("Can not open file: %v"), reply.FileName)
+	}
+
+	// 2. Read file content
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		DPrintf(fail("Can not read file content: %v"), reply.FileName)
+	}
+	file.Close()
+
+	// 3. Run Map Task
+	res := mapf(reply.FileName, string(content))
+
+	// 4. Save in the file
+	redFileName := fmt.Sprintf(REDUCE_TASK_NAME, reply.TaskID)
+	newFile, err := os.Create(redFileName)
+	if err != nil {
+		DPrintf(fail("Can not create file: %v"), reply.FileName)
+	}
+	for i := 0; i < len(res); i++ {
+		fmt.Fprintf(newFile, "%v %v\n", res[i].Key, res[i].Value)
+	}
+
+	// 5. Send Back Task Done RPC
+
 }
 
 func sendRequestTaskRPC(args *RequestTaskArgs, reply *RequestTaskReply) bool {

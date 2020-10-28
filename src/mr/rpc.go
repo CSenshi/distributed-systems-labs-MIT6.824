@@ -18,7 +18,8 @@ type RequestTaskArgs struct {
 }
 
 type RequestTaskReply struct {
-	Y int
+	FileName string
+	TaskID   int
 }
 
 // Add your RPC definitions here.

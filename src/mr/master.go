@@ -6,10 +6,13 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
 )
 
 type MapTask struct {
-	state State
+	state    State
+	fileName string
+	ID       int
 }
 
 type RedTask struct {
@@ -17,8 +20,11 @@ type RedTask struct {
 }
 
 type Master struct {
+	mu       sync.Mutex
 	mapTasks []MapTask
 	redTasks []RedTask
+
+	mapTasksToFinish int
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -29,6 +35,17 @@ type Master struct {
 // the RPC argument and reply types are defined in rpc.go.
 //
 func (m *Master) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i, task := range m.mapTasks {
+		if task.state == idle {
+			reply.FileName = task.fileName
+			reply.TaskID = task.ID
+			m.mapTasks[i].state = inProgress
+			return nil
+		}
+	}
 	DPrintf(makeMasterRequest("New Requst Task from worker"))
 	return nil
 }
@@ -54,11 +71,10 @@ func (m *Master) server() {
 // if the entire job has finished.
 //
 func (m *Master) Done() bool {
-	ret := false
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	// Your code here.
-
-	return ret
+	return m.mapTasksToFinish == 0
 }
 
 //
@@ -67,10 +83,24 @@ func (m *Master) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 func MakeMaster(files []string, nReduce int) *Master {
-	DPrintf(makeMasterRequest("New Master Server Created! ToTal Files: %v | nReduce: %v "), len(files), nReduce)
+	DPrintf(makeMasterRequest("New Master Server Created!"))
 	m := Master{}
-	// Your code here.
 
+	// Create MapTasks with given files
+	m.mapTasks = make([]MapTask, len(files))
+	for i, file := range files {
+		m.mapTasks[i].fileName = file
+		m.mapTasks[i].state = idle
+		m.mapTasks[i].ID = i
+	}
+	DPrintf(makeMasterRequest("Map Tasks | Total: %v"), len(files))
+	m.mapTasksToFinish = len(m.mapTasks)
+
+	// Create RedTasks with given nReduce count
+	m.redTasks = make([]RedTask, nReduce)
+	DPrintf(makeMasterRequest("Reduce Tasks | Total: %v"), nReduce)
+
+	// Serve
 	m.server()
 	return &m
 }
