@@ -1,15 +1,24 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
+import (
+	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+)
 
+type MapTask struct {
+	state State
+}
+
+type RedTask struct {
+	state State
+}
 
 type Master struct {
-	// Your definitions here.
-
+	mapTasks []MapTask
+	redTasks []RedTask
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -19,11 +28,10 @@ type Master struct {
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
+func (m *Master) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) error {
+	DPrintf(makeMasterRequest("New Requst Task from worker"))
 	return nil
 }
-
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -50,7 +58,6 @@ func (m *Master) Done() bool {
 
 	// Your code here.
 
-
 	return ret
 }
 
@@ -60,10 +67,9 @@ func (m *Master) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 func MakeMaster(files []string, nReduce int) *Master {
+	DPrintf(makeMasterRequest("New Master Server Created! ToTal Files: %v | nReduce: %v "), len(files), nReduce)
 	m := Master{}
-
 	// Your code here.
-
 
 	m.server()
 	return &m

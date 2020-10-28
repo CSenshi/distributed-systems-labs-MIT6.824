@@ -1,10 +1,11 @@
 package mr
 
-import "fmt"
-import "log"
-import "net/rpc"
-import "hash/fnv"
-
+import (
+	"fmt"
+	"hash/fnv"
+	"log"
+	"net/rpc"
+)
 
 //
 // Map functions return a slice of KeyValue.
@@ -24,41 +25,28 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-
 //
 // main/mrworker.go calls this function.
 //
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	// Your worker implementation here.
+	// 1. Create RPC Argument
+	args := RequestTaskArgs{}
+	reply := RequestTaskReply{}
 
-	// uncomment to send the Example RPC to the master.
-	// CallExample()
+	// 2. Send RPC
+	ok := sendRequestTaskRPC(&args, &reply)
+	if !ok {
+		DPrintf(networkError("No Connection: sendRequestTask | worker -> master"))
+	}
 
+	// 3. Process RPC Reply
 }
 
-//
-// example function to show how to make an RPC call to the master.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func CallExample() {
-
-	// declare an argument structure.
-	args := ExampleArgs{}
-
-	// fill in the argument(s).
-	args.X = 99
-
-	// declare a reply structure.
-	reply := ExampleReply{}
-
-	// send the RPC request, wait for the reply.
-	call("Master.Example", &args, &reply)
-
-	// reply.Y should be 100.
-	fmt.Printf("reply.Y %v\n", reply.Y)
+func sendRequestTaskRPC(args *RequestTaskArgs, reply *RequestTaskReply) bool {
+	ok := call("Master.RequestTask", args, reply)
+	return ok
 }
 
 //
