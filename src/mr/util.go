@@ -8,6 +8,7 @@ import (
 var (
 	makeMasterRequest = green
 	fail              = red
+	newTask           = magenta
 )
 
 var (

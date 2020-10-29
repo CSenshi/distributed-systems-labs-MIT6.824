@@ -38,6 +38,7 @@ func (m *Master) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) err
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Send Map Tasks
 	for i, task := range m.mapTasks {
 		if task.state == idle {
 			reply.FileName = task.fileName
@@ -46,7 +47,19 @@ func (m *Master) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) err
 			return nil
 		}
 	}
-	DPrintf(makeMasterRequest("New Requst Task from worker"))
+
+	// Send Reduce Tasks
+	// ToDo
+	return nil
+}
+
+func (m *Master) TaskDone(args *DoneTaskArgs, reply *DoneTaskReply) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.mapTasks[args.TaskID].state = completed
+	m.mapTasksToFinish--
+	DPrintf("Worker Finished Working, Left : %v", m.mapTasksToFinish)
 	return nil
 }
 
@@ -74,7 +87,7 @@ func (m *Master) Done() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.mapTasksToFinish == 0
+	return m.mapTasksToFinish <= 0
 }
 
 //

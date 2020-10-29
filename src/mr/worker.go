@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"time"
 )
 
 const REDUCE_TASK_NAME = "mr-out-%d"
@@ -35,35 +36,42 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	// 1. Create RPC Argument
-	args := RequestTaskArgs{}
-	reply := RequestTaskReply{}
+	for {
+		// 1. Create RPC Argument
+		args := RequestTaskArgs{}
+		reply := RequestTaskReply{}
 
-	// 2. Send RPC
-	ok := sendRequestTaskRPC(&args, &reply)
-	if !ok {
-		DPrintf(fail("No Connection: sendRequestTask | worker -> master"))
+		// 2. Send RPC
+		ok := sendRequestTaskRPC(&args, &reply)
+		if !ok {
+			DPrintf(fail("Connection Error: sendRequestTask | worker -> master"))
+		}
+
+		// 3. Process RPC Reply
+		processRequestTaskReply(&args, &reply, mapf, reducef)
+
+		select {
+		case <-time.After(1 * time.Second):
+		}
 	}
-
-	// 3. Process RPC Reply
-	processRequestTaskReply(&args, &reply, mapf, reducef)
 }
 
 func processRequestTaskReply(args *RequestTaskArgs, reply *RequestTaskReply,
 	mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
-
-	DPrintf("Worker Received Task: %v", reply)
+	DPrintf(newTask("Worker Received Task: %+v"), reply)
 
 	// 1. Open file which master provided
 	file, err := os.Open(reply.FileName)
 	if err != nil {
 		DPrintf(fail("Can not open file: %v"), reply.FileName)
+		return
 	}
 
 	// 2. Read file content
 	content, err := ioutil.ReadAll(file)
 	if err != nil {
 		DPrintf(fail("Can not read file content: %v"), reply.FileName)
+		return
 	}
 	file.Close()
 
@@ -75,13 +83,23 @@ func processRequestTaskReply(args *RequestTaskArgs, reply *RequestTaskReply,
 	newFile, err := os.Create(redFileName)
 	if err != nil {
 		DPrintf(fail("Can not create file: %v"), reply.FileName)
+		return
 	}
 	for i := 0; i < len(res); i++ {
 		fmt.Fprintf(newFile, "%v %v\n", res[i].Key, res[i].Value)
 	}
 
 	// 5. Send Back Task Done RPC
+	newArgs := &DoneTaskArgs{TaskID: reply.TaskID}
+	ok := sendDoneTaskRPC(newArgs, &DoneTaskReply{})
+	if !ok {
+		DPrintf(fail("Connection Error: sendDoneTaskRPC worker -> master"))
+	}
+}
 
+func sendDoneTaskRPC(args *DoneTaskArgs, reply *DoneTaskReply) bool {
+	ok := call("Master.TaskDone", args, reply)
+	return ok
 }
 
 func sendRequestTaskRPC(args *RequestTaskArgs, reply *RequestTaskReply) bool {

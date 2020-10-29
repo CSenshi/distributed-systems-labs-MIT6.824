@@ -18,8 +18,15 @@ type RequestTaskArgs struct {
 }
 
 type RequestTaskReply struct {
-	FileName string
 	TaskID   int
+	FileName string
+}
+
+type DoneTaskArgs struct {
+	TaskID int
+}
+
+type DoneTaskReply struct {
 }
 
 // Add your RPC definitions here.
@@ -29,7 +36,7 @@ type RequestTaskReply struct {
 // Can't use the current directory since
 // Athena AFS doesn't support UNIX-domain sockets.
 func masterSock() string {
-	s := "/var/tmp/824-mr-"
+	s := "/var/tmp/821-mr-"
 	s += strconv.Itoa(os.Getuid())
 	return s
 }
