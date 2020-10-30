@@ -11,12 +11,13 @@ import (
 
 type MapTask struct {
 	state    State
-	fileName string
+	FileName string
 	ID       int
 }
 
 type RedTask struct {
 	state State
+	ID    int
 }
 
 type Master struct {
@@ -29,13 +30,6 @@ type Master struct {
 	mapTasksToFinish int
 }
 
-// Your code here -- RPC handlers for the worker to call.
-
-//
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
 func (m *Master) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -43,16 +37,20 @@ func (m *Master) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) err
 	// Send Map Tasks
 	for i, task := range m.mapTasks {
 		if task.state == idle {
-			reply.FileName = task.fileName
-			reply.TaskID = task.ID
+			reply.Map = m.mapTasks[i]
 			reply.NReduce = m.nReduce
+			reply.TaskType = mapTask
 			m.mapTasks[i].state = inProgress
 			return nil
 		}
 	}
 
 	// Send Reduce Tasks
-	// ToDo
+	for _, task := range m.redTasks {
+		if task.state == idle {
+			task.state = inProgress
+		}
+	}
 	return nil
 }
 
@@ -105,7 +103,7 @@ func MakeMaster(files []string, nReduce int) *Master {
 	// Create MapTasks with given files
 	m.mapTasks = make([]MapTask, len(files))
 	for i, file := range files {
-		m.mapTasks[i].fileName = file
+		m.mapTasks[i].FileName = file
 		m.mapTasks[i].state = idle
 		m.mapTasks[i].ID = i
 	}
@@ -114,6 +112,11 @@ func MakeMaster(files []string, nReduce int) *Master {
 
 	// Create RedTasks with given nReduce count
 	m.redTasks = make([]RedTask, nReduce)
+	for i := 0; i < nReduce; i++ {
+		m.redTasks[i].state = idle
+		m.redTasks[i].ID = i
+
+	}
 	DPrintf(makeMasterRequest("Reduce Tasks | Total: %v"), nReduce)
 
 	// Save number of Map/Reduce Tasks

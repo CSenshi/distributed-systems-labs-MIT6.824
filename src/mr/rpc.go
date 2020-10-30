@@ -6,21 +6,20 @@ package mr
 // remember to capitalize all names.
 //
 
-import "os"
-import "strconv"
+import (
+	"os"
+	"strconv"
+)
 
-//
-// example to show how to declare the arguments
-// and reply for an RPC.
-//
-
+// Request Task
 type RequestTaskArgs struct {
 }
 
 type RequestTaskReply struct {
-	TaskID   int    // ID of MapTask in Master server
-	FileName string // Name of file to be proccessed by mappers
-	NReduce  int    // Total number of reducer tasks (used to hash kv)
+	Map      MapTask
+	Red      RedTask
+	TaskType TaskType
+	NReduce  int // Total number of reducer tasks (used to hash kv)
 }
 
 type DoneTaskArgs struct {

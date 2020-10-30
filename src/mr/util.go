@@ -67,3 +67,22 @@ func (e State) String() string {
 		return fmt.Sprintf("Undefined State:%d", int(e))
 	}
 }
+
+// TaskType of RequestTask Reply
+type TaskType int
+
+const (
+	mapTask TaskType = iota
+	redTask TaskType = iota
+)
+
+func (e TaskType) String() string {
+	switch e {
+	case mapTask:
+		return "Map Task"
+	case redTask:
+		return "Reduce Task"
+	default:
+		return fmt.Sprintf("Undefined Task: %d", int(e))
+	}
+}

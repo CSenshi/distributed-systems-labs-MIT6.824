@@ -11,11 +11,9 @@ import (
 	"time"
 )
 
-const INTERMEDIATE_FILE_NAME = "mr-%d-%d"
+const intermediateFname = "mr-%d-%d"
 
-//
-// Map functions return a slice of KeyValue.
-//
+// KeyValue slices are returned by Map functions
 type KeyValue struct {
 	Key   string
 	Value string
@@ -31,9 +29,7 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-//
-// main/mrworker.go calls this function.
-//
+// Worker is called by main/mrworker.go
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
@@ -57,33 +53,42 @@ func Worker(mapf func(string, string) []KeyValue,
 	}
 }
 
-func processRequestTaskReply(args *RequestTaskArgs, reply *RequestTaskReply,
-	mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
-	DPrintf(newTask("Worker Received Task: %+v"), reply)
+func processRequestTaskReply(args *RequestTaskArgs, reply *RequestTaskReply, mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+	switch reply.TaskType {
+	case mapTask:
+		processMapTask(reply, mapf)
+	case redTask:
+		processRedTask(reply, reducef)
+	}
+}
+
+func processMapTask(reply *RequestTaskReply, mapf func(string, string) []KeyValue) {
+	task := reply.Map
+	DPrintf(newTask("Worker Received Map Task: %+v"), task)
 
 	// 1. Open file which master provided
-	file, err := os.Open(reply.FileName)
+	file, err := os.Open(task.FileName)
 	if err != nil {
-		DPrintf(fail("Can not open file: %v"), reply.FileName)
+		DPrintf(fail("Can not open file: %v"), task.FileName)
 		return
 	}
 
 	// 2. Read file content
 	content, err := ioutil.ReadAll(file)
 	if err != nil {
-		DPrintf(fail("Can not read file content: %v"), reply.FileName)
+		DPrintf(fail("Can not read file content: %v"), task.FileName)
 		return
 	}
 	file.Close()
 
 	// 3. Run Map Task
-	kva := mapf(reply.FileName, string(content))
+	kva := mapf(task.FileName, string(content))
 
 	// 4. Save in the file
 	// 4.1 Create All Reducers Encoders
 	encoders := make([]*json.Encoder, reply.NReduce)
 	for i := 0; i < reply.NReduce; i++ {
-		intermediateFileName := fmt.Sprintf(INTERMEDIATE_FILE_NAME, reply.TaskID, i)
+		intermediateFileName := fmt.Sprintf(intermediateFname, task.ID, i)
 		file, err := os.Create(intermediateFileName)
 		if err != nil {
 			DPrintf(fail("Can not create file: %v"), intermediateFileName)
@@ -105,11 +110,17 @@ func processRequestTaskReply(args *RequestTaskArgs, reply *RequestTaskReply,
 	// ToDo
 
 	// 5. Send Back Task Done RPC
-	newArgs := &DoneTaskArgs{TaskID: reply.TaskID}
+	newArgs := &DoneTaskArgs{TaskID: task.ID}
 	ok := sendDoneTaskRPC(newArgs, &DoneTaskReply{})
 	if !ok {
 		DPrintf(fail("Connection Error: sendDoneTaskRPC worker -> master"))
 	}
+}
+
+func processRedTask(reply *RequestTaskReply, reducef func(string, []string) string) {
+	task := reply.Red
+	DPrintf(newTask("Worker Received Map Task: %+v"), task)
+
 }
 
 func sendDoneTaskRPC(args *DoneTaskArgs, reply *DoneTaskReply) bool {
