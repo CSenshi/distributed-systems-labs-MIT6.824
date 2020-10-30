@@ -8,10 +8,12 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"sort"
 	"time"
 )
 
 const intermediateFname = "mr-%d-%d"
+const outputFname = "mr-out-%d"
 
 // KeyValue slices are returned by Map functions
 type KeyValue struct {
@@ -45,21 +47,27 @@ func Worker(mapf func(string, string) []KeyValue,
 		}
 
 		// 3. Process RPC Reply
-		processRequestTaskReply(&args, &reply, mapf, reducef)
+		success := processRequestTaskReply(&args, &reply, mapf, reducef)
+		if !success {
+			break
+		}
 
 		select {
-		case <-time.After(1 * time.Second):
+		case <-time.After(requestTaskTTL * time.Millisecond):
 		}
 	}
 }
 
-func processRequestTaskReply(args *RequestTaskArgs, reply *RequestTaskReply, mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+func processRequestTaskReply(args *RequestTaskArgs, reply *RequestTaskReply, mapf func(string, string) []KeyValue, reducef func(string, []string) string) bool {
 	switch reply.TaskType {
 	case mapTask:
 		processMapTask(reply, mapf)
 	case redTask:
 		processRedTask(reply, reducef)
+	case nop:
+		return processNOPTask(reply)
 	}
+	return true
 }
 
 func processMapTask(reply *RequestTaskReply, mapf func(string, string) []KeyValue) {
@@ -95,7 +103,7 @@ func processMapTask(reply *RequestTaskReply, mapf func(string, string) []KeyValu
 		intermediateFileName := fmt.Sprintf(intermediateFname, task.ID, i)
 		file, err := os.Create(intermediateFileName)
 		if err != nil {
-			DPrintf(fail("Can not create file: %v"), intermediateFileName)
+			DPrintf(fail("Can not create file: %v {%v}"), intermediateFileName, err)
 			return
 		}
 		writers[i] = writer{json.NewEncoder(file), file}
@@ -111,15 +119,15 @@ func processMapTask(reply *RequestTaskReply, mapf func(string, string) []KeyValu
 	}
 
 	// 4.3 Close all files
-	for _, writer := range writers {
-		err = writer.file.Close()
+	for _, w := range writers {
+		err = w.file.Close()
 		if err != nil {
-			DPrintf(fail("Can not close file %v"), writer.file.Name())
+			DPrintf(fail("Can not close file %v"), w.file.Name())
 		}
 	}
 
 	// 5. Send Back Task Done RPC
-	newArgs := &DoneTaskArgs{TaskID: task.ID}
+	newArgs := &DoneTaskArgs{TaskID: task.ID, TaskType: mapTask}
 	ok := sendDoneTaskRPC(newArgs, &DoneTaskReply{})
 	if !ok {
 		DPrintf(fail("Connection Error: sendDoneTaskRPC worker -> master"))
@@ -128,7 +136,67 @@ func processMapTask(reply *RequestTaskReply, mapf func(string, string) []KeyValu
 
 func processRedTask(reply *RequestTaskReply, reducef func(string, []string) string) {
 	task := reply.Red
-	DPrintf(newTask("Worker Received Map Task: %+v"), task)
+	DPrintf(newTask("Worker Received Reduce Task: %+v"), task)
+
+	// 1. Open files
+	type reader struct {
+		decoder *json.Decoder
+		file    *os.File
+	}
+	readers := make([]reader, reply.NMap)
+	for i := 0; i < reply.NMap; i++ {
+		intermediateFileName := fmt.Sprintf(intermediateFname, i, task.ID)
+		file, err := os.Open(intermediateFileName)
+		if err != nil {
+			return
+		}
+		readers[i] = reader{json.NewDecoder(file), file}
+	}
+
+	// 2. Read KeyValues from all files
+	kvm := make(map[string][]string)
+	for _, r := range readers {
+		// 2.1 Read KeyValues from one file
+		for {
+			var kv KeyValue
+			if err := r.decoder.Decode(&kv); err != nil {
+				break
+			}
+			kvm[kv.Key] = append(kvm[kv.Key], kv.Value)
+		}
+		// 2.2 Close file
+		err := r.file.Close()
+		if err != nil {
+			DPrintf(fail("Can not close file %v"), r.file.Name())
+		}
+	}
+
+	// 3. Sort Map Keys
+	var keys []string
+	for key := range kvm {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	// 4. Write into file
+	outFName := fmt.Sprintf(outputFname, task.ID)
+	outFile, _ := os.Create(outFName)
+	for _, key := range keys {
+		res := reducef(key, kvm[key])
+		fmt.Fprintf(outFile, "%v %v\n", key, res)
+	}
+
+	// 5. Send Back Task Done RPC
+	newArgs := &DoneTaskArgs{TaskID: task.ID, TaskType: redTask}
+	ok := sendDoneTaskRPC(newArgs, &DoneTaskReply{})
+	if !ok {
+		DPrintf(fail("Connection Error: sendDoneTaskRPC worker -> master"))
+	}
+}
+
+func processNOPTask(reply *RequestTaskReply) bool {
+	DPrintf(newTask("Worker Received NOP Task | No More Tasks"))
+	return false
 }
 
 func sendDoneTaskRPC(args *DoneTaskArgs, reply *DoneTaskReply) bool {

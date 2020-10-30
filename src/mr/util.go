@@ -9,6 +9,7 @@ var (
 	makeMasterRequest = green
 	fail              = red
 	newTask           = magenta
+	newPhase          = green
 )
 
 var (
@@ -22,8 +23,8 @@ var (
 	white   = Color("\033[1;37m%s\033[0m")
 )
 
-const coloring = 1 // if coloring > 0 then: color output
-const debug = 1    // if debug > 0 then: print debug logs
+const coloring = 0 // if coloring > 0 then: color output
+const debug = 0    // if debug > 0 then: print debug logs
 
 // Color function takes interface that sprintfs given string and colors
 func Color(colorString string) func(...interface{}) string {
@@ -64,7 +65,7 @@ func (e State) String() string {
 	case completed:
 		return "Completed"
 	default:
-		return fmt.Sprintf("Undefined State:%d", int(e))
+		return fmt.Sprintf("Undefined State: %d", int(e))
 	}
 }
 
@@ -74,6 +75,7 @@ type TaskType int
 const (
 	mapTask TaskType = iota
 	redTask TaskType = iota
+	nop     TaskType = iota
 )
 
 func (e TaskType) String() string {
@@ -82,7 +84,11 @@ func (e TaskType) String() string {
 		return "Map Task"
 	case redTask:
 		return "Reduce Task"
+	case nop:
+		return "No Operation"
 	default:
 		return fmt.Sprintf("Undefined Task: %d", int(e))
 	}
 }
+
+const requestTaskTTL = 50

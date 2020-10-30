@@ -6,61 +6,93 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"strings"
 	"sync"
 )
 
+// MapTask used for Map phase tasks
 type MapTask struct {
 	state    State
 	FileName string
 	ID       int
 }
 
+// RedTask used for Reduce phase tasks
 type RedTask struct {
 	state State
 	ID    int
 }
 
+// Master keeps track of all data that is needed
 type Master struct {
-	mu       sync.Mutex
-	mapTasks []MapTask
-	redTasks []RedTask
+	mu   *sync.Mutex
+	cond *sync.Cond
+
+	mapTasks []*MapTask
+	redTasks []*RedTask
 
 	nReduce          int // Number of Reduce Tasks
-	nMaps            int // Number of Map Tasks
+	nMap             int // Number of Map Tasks
 	mapTasksToFinish int
+	redTasksToFinish int
 }
 
+// RequestTask RPC handles giving tasks to workers
 func (m *Master) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	reply.NReduce = m.nReduce
+	reply.NMap = m.nMap
+	reply.TaskType = nop
+
 	// Send Map Tasks
-	for i, task := range m.mapTasks {
+	for _, task := range m.mapTasks {
 		if task.state == idle {
-			reply.Map = m.mapTasks[i]
-			reply.NReduce = m.nReduce
+			reply.Map = *task
 			reply.TaskType = mapTask
-			m.mapTasks[i].state = inProgress
+			task.state = inProgress
 			return nil
 		}
+	}
+
+	// Wait for all reducers to complete their task
+	for m.mapTasksToFinish > 0 {
+		m.cond.Wait()
 	}
 
 	// Send Reduce Tasks
 	for _, task := range m.redTasks {
 		if task.state == idle {
+			reply.Red = *task
+			reply.TaskType = redTask
 			task.state = inProgress
+			return nil
 		}
 	}
 	return nil
 }
 
+// TaskDone handles marking tasks as completed when workers send notify
 func (m *Master) TaskDone(args *DoneTaskArgs, reply *DoneTaskReply) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.mapTasks[args.TaskID].state = completed
-	m.mapTasksToFinish--
-	DPrintf("Worker Finished Working, Left : %v", m.mapTasksToFinish)
+	if args.TaskType == mapTask {
+		m.mapTasks[args.TaskID].state = completed
+		m.mapTasksToFinish--
+		DPrintf("Map Worker Finished Working, Left : %v", m.mapTasksToFinish)
+		if m.mapTasksToFinish == 0 {
+
+			DPrintf(newPhase("%[1]v Starting Reduce Phase %[1]v"), strings.Repeat("-", 20))
+			m.cond.Broadcast()
+		}
+	} else if args.TaskType == redTask {
+		m.redTasks[args.TaskID].state = completed
+		m.redTasksToFinish--
+		DPrintf("Reduce Worker Finished Working, Left : %v", m.redTasksToFinish)
+	}
+
 	return nil
 }
 
@@ -80,50 +112,50 @@ func (m *Master) server() {
 	go http.Serve(l, nil)
 }
 
-//
-// main/mrmaster.go calls Done() periodically to find out
+// Done is periodically called by main/mrmaster.go to find out
 // if the entire job has finished.
-//
 func (m *Master) Done() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.mapTasksToFinish <= 0
+	return m.mapTasksToFinish <= 0 && m.redTasksToFinish <= 0
 }
 
-//
-// create a Master.
-// main/mrmaster.go calls this function.
+// MakeMaster is called by main/mrmaster.go.
 // nReduce is the number of reduce tasks to use.
-//
 func MakeMaster(files []string, nReduce int) *Master {
 	DPrintf(makeMasterRequest("New Master Server Created!"))
 	m := Master{}
+	m.mu = &sync.Mutex{}
+	m.cond = sync.NewCond(m.mu)
 
 	// Create MapTasks with given files
-	m.mapTasks = make([]MapTask, len(files))
+	m.mapTasks = make([]*MapTask, len(files))
 	for i, file := range files {
+		m.mapTasks[i] = new(MapTask)
 		m.mapTasks[i].FileName = file
 		m.mapTasks[i].state = idle
 		m.mapTasks[i].ID = i
 	}
 	DPrintf(makeMasterRequest("Map Tasks | Total: %v"), len(files))
-	m.mapTasksToFinish = len(m.mapTasks)
 
 	// Create RedTasks with given nReduce count
-	m.redTasks = make([]RedTask, nReduce)
+	m.redTasks = make([]*RedTask, nReduce)
 	for i := 0; i < nReduce; i++ {
+		m.redTasks[i] = new(RedTask)
 		m.redTasks[i].state = idle
 		m.redTasks[i].ID = i
-
 	}
 	DPrintf(makeMasterRequest("Reduce Tasks | Total: %v"), nReduce)
 
 	// Save number of Map/Reduce Tasks
-	m.nMaps = len(files)
+	m.nMap = len(files)
 	m.nReduce = nReduce
+	m.mapTasksToFinish = len(m.mapTasks)
+	m.redTasksToFinish = len(m.redTasks)
 
 	// Serve
+	DPrintf(newPhase("%[1]v Starting Map Phase %[1]v"), strings.Repeat("-", 20))
 	m.server()
 	return &m
 }
