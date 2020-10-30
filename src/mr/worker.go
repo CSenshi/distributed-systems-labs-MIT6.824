@@ -86,7 +86,11 @@ func processMapTask(reply *RequestTaskReply, mapf func(string, string) []KeyValu
 
 	// 4. Save in the file
 	// 4.1 Create All Reducers Encoders
-	encoders := make([]*json.Encoder, reply.NReduce)
+	type writer struct {
+		encoder *json.Encoder
+		file    *os.File
+	}
+	writers := make([]writer, reply.NReduce)
 	for i := 0; i < reply.NReduce; i++ {
 		intermediateFileName := fmt.Sprintf(intermediateFname, task.ID, i)
 		file, err := os.Create(intermediateFileName)
@@ -94,20 +98,25 @@ func processMapTask(reply *RequestTaskReply, mapf func(string, string) []KeyValu
 			DPrintf(fail("Can not create file: %v"), intermediateFileName)
 			return
 		}
-		encoders[i] = json.NewEncoder(file)
+		writers[i] = writer{json.NewEncoder(file), file}
 	}
 
 	// 4.2 Write KeyValues to specific file via encoder
 	for _, kv := range kva {
 		hash := ihash(kv.Key) % reply.NReduce
-		err := encoders[hash].Encode(&kv)
+		err := writers[hash].encoder.Encode(&kv)
 		if err != nil {
-			DPrintf(fail("Can not write \"%+v\"", kv))
+			DPrintf(fail("Can not write \"%+v\""), kv)
 		}
 	}
 
 	// 4.3 Close all files
-	// ToDo
+	for _, writer := range writers {
+		err = writer.file.Close()
+		if err != nil {
+			DPrintf(fail("Can not close file %v"), writer.file.Name())
+		}
+	}
 
 	// 5. Send Back Task Done RPC
 	newArgs := &DoneTaskArgs{TaskID: task.ID}
@@ -120,7 +129,6 @@ func processMapTask(reply *RequestTaskReply, mapf func(string, string) []KeyValu
 func processRedTask(reply *RequestTaskReply, reducef func(string, []string) string) {
 	task := reply.Red
 	DPrintf(newTask("Worker Received Map Task: %+v"), task)
-
 }
 
 func sendDoneTaskRPC(args *DoneTaskArgs, reply *DoneTaskReply) bool {
