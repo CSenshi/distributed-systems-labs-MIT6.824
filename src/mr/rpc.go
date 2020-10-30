@@ -18,8 +18,9 @@ type RequestTaskArgs struct {
 }
 
 type RequestTaskReply struct {
-	TaskID   int
-	FileName string
+	TaskID   int    // ID of MapTask in Master server
+	FileName string // Name of file to be proccessed by mappers
+	NReduce  int    // Total number of reducer tasks (used to hash kv)
 }
 
 type DoneTaskArgs struct {

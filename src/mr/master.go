@@ -24,6 +24,8 @@ type Master struct {
 	mapTasks []MapTask
 	redTasks []RedTask
 
+	nReduce          int // Number of Reduce Tasks
+	nMaps            int // Number of Map Tasks
 	mapTasksToFinish int
 }
 
@@ -43,6 +45,7 @@ func (m *Master) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) err
 		if task.state == idle {
 			reply.FileName = task.fileName
 			reply.TaskID = task.ID
+			reply.NReduce = m.nReduce
 			m.mapTasks[i].state = inProgress
 			return nil
 		}
@@ -112,6 +115,10 @@ func MakeMaster(files []string, nReduce int) *Master {
 	// Create RedTasks with given nReduce count
 	m.redTasks = make([]RedTask, nReduce)
 	DPrintf(makeMasterRequest("Reduce Tasks | Total: %v"), nReduce)
+
+	// Save number of Map/Reduce Tasks
+	m.nMaps = len(files)
+	m.nReduce = nReduce
 
 	// Serve
 	m.server()

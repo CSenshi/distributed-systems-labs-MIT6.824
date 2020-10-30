@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"io/ioutil"
@@ -10,7 +11,7 @@ import (
 	"time"
 )
 
-const REDUCE_TASK_NAME = "mr-out-%d"
+const INTERMEDIATE_FILE_NAME = "mr-%d-%d"
 
 //
 // Map functions return a slice of KeyValue.
@@ -76,18 +77,32 @@ func processRequestTaskReply(args *RequestTaskArgs, reply *RequestTaskReply,
 	file.Close()
 
 	// 3. Run Map Task
-	res := mapf(reply.FileName, string(content))
+	kva := mapf(reply.FileName, string(content))
 
 	// 4. Save in the file
-	redFileName := fmt.Sprintf(REDUCE_TASK_NAME, reply.TaskID)
-	newFile, err := os.Create(redFileName)
-	if err != nil {
-		DPrintf(fail("Can not create file: %v"), reply.FileName)
-		return
+	// 4.1 Create All Reducers Encoders
+	encoders := make([]*json.Encoder, reply.NReduce)
+	for i := 0; i < reply.NReduce; i++ {
+		intermediateFileName := fmt.Sprintf(INTERMEDIATE_FILE_NAME, reply.TaskID, i)
+		file, err := os.Create(intermediateFileName)
+		if err != nil {
+			DPrintf(fail("Can not create file: %v"), intermediateFileName)
+			return
+		}
+		encoders[i] = json.NewEncoder(file)
 	}
-	for i := 0; i < len(res); i++ {
-		fmt.Fprintf(newFile, "%v %v\n", res[i].Key, res[i].Value)
+
+	// 4.2 Write KeyValues to specific file via encoder
+	for _, kv := range kva {
+		hash := ihash(kv.Key) % reply.NReduce
+		err := encoders[hash].Encode(&kv)
+		if err != nil {
+			DPrintf(fail("Can not write \"%+v\"", kv))
+		}
 	}
+
+	// 4.3 Close all files
+	// ToDo
 
 	// 5. Send Back Task Done RPC
 	newArgs := &DoneTaskArgs{TaskID: reply.TaskID}
