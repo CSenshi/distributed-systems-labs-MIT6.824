@@ -8,25 +8,35 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 // MapTask used for Map phase tasks
 type MapTask struct {
-	state    State
-	FileName string
-	ID       int
+	state      State
+	FileName   string
+	ID         int
+	assignTime time.Time
+}
+
+func (mpt *MapTask) timeOut() bool {
+	return mpt.assignTime.Before(time.Now().Add(-workerTTL))
 }
 
 // RedTask used for Reduce phase tasks
 type RedTask struct {
-	state State
-	ID    int
+	state      State
+	ID         int
+	assignTime time.Time
+}
+
+func (rdt *RedTask) timeOut() bool {
+	return rdt.assignTime.Before(time.Now().Add(-workerTTL))
 }
 
 // Master keeps track of all data that is needed
 type Master struct {
-	mu   *sync.Mutex
-	cond *sync.Cond
+	mu *sync.Mutex
 
 	mapTasks []*MapTask
 	redTasks []*RedTask
@@ -43,35 +53,63 @@ type Master struct {
 func (m *Master) RequestTask(_ *struct{}, reply *RequestTaskReply) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	reply.NReduce = m.nReduce
 	reply.NMap = m.nMap
 	reply.TaskType = nop
 
-	// Send Map Tasks
+	// 1. Send Map Tasks
+	allMapTasksDone := true
 	for _, task := range m.mapTasks {
-		if task.state == idle {
+		if task.state == completed {
+			continue
+		}
+
+		allMapTasksDone = false
+		if task.state == idle || (task.state == inProgress && task.timeOut()) {
+			if task.state == inProgress {
+				DPrintf(fail("Map Worker Stuck! Assigning MapTask to new Worker %v"), task)
+			}
 			reply.Map = *task
 			reply.TaskType = mapTask
 			task.state = inProgress
+			task.assignTime = time.Now()
+			return nil
+		}
+	}
+
+	// Wait for all mappers to complete their task
+	if !allMapTasksDone {
+		reply.TaskType = waitTask
+		return nil
+	}
+
+	// 3. Send Reduce Tasks
+	allReduceTasksDone := true
+	for _, task := range m.redTasks {
+		if task.state == completed {
+			continue
+		}
+
+		allReduceTasksDone = false
+		if task.state == idle || (task.state == inProgress && task.timeOut()) {
+			if task.state == inProgress {
+				DPrintf(fail("Reduce Worker Stuck! Assigning ReduceTask to new Worker %v"), task)
+			}
+			reply.Red = *task
+			reply.TaskType = redTask
+			task.state = inProgress
+			task.assignTime = time.Now()
 			return nil
 		}
 	}
 
 	// Wait for all reducers to complete their task
-	for m.mapTasksToFinish > 0 {
-		m.cond.Wait()
+	if !allReduceTasksDone {
+		reply.TaskType = waitTask
+		return nil
 	}
 
-	// Send Reduce Tasks
-	for _, task := range m.redTasks {
-		if task.state == idle {
-			reply.Red = *task
-			reply.TaskType = redTask
-			task.state = inProgress
-			return nil
-		}
-	}
+	// 3. At this point we can say goodbye to our worker
 	return nil
 }
 
@@ -82,16 +120,15 @@ func (m *Master) TaskDone(args *DoneTaskArgs, _ *struct{}) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if args.TaskType == mapTask {
+	if args.TaskType == mapTask && m.mapTasks[args.TaskID].state != completed {
 		m.mapTasks[args.TaskID].state = completed
 		m.mapTasksToFinish--
 		DPrintf("Map Worker Finished Working, Left : %v", m.mapTasksToFinish)
 		if m.mapTasksToFinish == 0 {
-
-			DPrintf(newPhase("%[1]v Starting Reduce Phase %[1]v"), strings.Repeat("-", 20))
-			m.cond.Broadcast()
+			DPrintf(newPhase("%[1]v Starting Reduce Phase %[1]v"), strings.Repeat("-", 30))
+			// m.cond.Broadcast()
 		}
-	} else if args.TaskType == redTask {
+	} else if args.TaskType == redTask && m.redTasks[args.TaskID].state != completed {
 		m.redTasks[args.TaskID].state = completed
 		m.redTasksToFinish--
 		DPrintf("Reduce Worker Finished Working, Left : %v", m.redTasksToFinish)
@@ -131,7 +168,6 @@ func MakeMaster(files []string, nReduce int) *Master {
 	DPrintf(makeMasterRequest("New Master Server Created!"))
 	m := Master{}
 	m.mu = &sync.Mutex{}
-	m.cond = sync.NewCond(m.mu)
 
 	// Create MapTasks with given files
 	m.mapTasks = make([]*MapTask, len(files))
@@ -159,7 +195,7 @@ func MakeMaster(files []string, nReduce int) *Master {
 	m.redTasksToFinish = len(m.redTasks)
 
 	// Serve
-	DPrintf(newPhase("%[1]v Starting Map Phase %[1]v"), strings.Repeat("-", 20))
+	DPrintf(newPhase("%[1]v Starting Map Phase %[1]v"), strings.Repeat("-", 30))
 	m.server()
 	return &m
 }

@@ -63,6 +63,8 @@ func processRequestTaskReply(reply *RequestTaskReply, mapf func(string, string) 
 		processMapTask(reply, mapf)
 	case redTask:
 		processRedTask(reply, reducef)
+	case waitTask:
+		processWaitTask(reply)
 	case nop:
 		return processNOPTask(reply)
 	}
@@ -191,6 +193,10 @@ func processRedTask(reply *RequestTaskReply, reducef func(string, []string) stri
 	if !ok {
 		DPrintf(fail("Connection Error: sendDoneTaskRPC worker -> master"))
 	}
+}
+
+func processWaitTask(reply *RequestTaskReply) {
+	time.Sleep(100 * time.Millisecond)
 }
 
 func processNOPTask(reply *RequestTaskReply) bool {
