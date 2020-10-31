@@ -51,9 +51,8 @@ func Worker(mapf func(string, string) []KeyValue,
 			break
 		}
 
-		select {
-		case <-time.After(requestTaskTTL * time.Millisecond):
-		}
+		// 4. Sleep some time before sending another request
+		time.Sleep(requestTaskTTL)
 	}
 }
 
@@ -73,7 +72,7 @@ func processRequestTaskReply(reply *RequestTaskReply, mapf func(string, string) 
 
 func processMapTask(reply *RequestTaskReply, mapf func(string, string) []KeyValue) {
 	task := reply.Map
-	DPrintf(newTask("Worker Received Map Task: %+v"), task)
+	DPrintf(newTask("Worker Received Map Task: {ID: %v, FileName: %v}"), task.ID, task.FileName)
 
 	// 1. Open file which master provided
 	file, err := os.Open(task.FileName)
@@ -137,7 +136,7 @@ func processMapTask(reply *RequestTaskReply, mapf func(string, string) []KeyValu
 
 func processRedTask(reply *RequestTaskReply, reducef func(string, []string) string) {
 	task := reply.Red
-	DPrintf(newTask("Worker Received Reduce Task: %+v"), task)
+	DPrintf(newTask("Worker Received Map Task: {ID: %v}"), task.ID)
 
 	// 1. Open files
 	type reader struct {

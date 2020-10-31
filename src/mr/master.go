@@ -38,13 +38,14 @@ func (rdt *RedTask) timeOut() bool {
 type Master struct {
 	mu *sync.Mutex
 
-	mapTasks []*MapTask
-	redTasks []*RedTask
+	mapTasks []*MapTask // all of Map Task
+	redTasks []*RedTask // all of Reduce Task
 
-	nReduce          int // Number of Reduce Tasks
-	nMap             int // Number of Map Tasks
-	mapTasksToFinish int
-	redTasksToFinish int
+	nReduce int // Number of total Reduce Tasks
+	nMap    int // Number of total Map Tasks
+
+	mapTasksToFinish int // Number of left Reduce Tasks to be done
+	redTasksToFinish int // Number of left Map Tasks to be done
 }
 
 // RequestTask RPC handles giving tasks to workers
@@ -67,7 +68,7 @@ func (m *Master) RequestTask(_ *struct{}, reply *RequestTaskReply) error {
 		allMapTasksDone = false
 		if task.state == idle || (task.state == inProgress && task.timeOut()) {
 			if task.state == inProgress {
-				DPrintf(fail("Map Worker Stuck! Assigning MapTask to new Worker %v"), task)
+				DPrintf(fail("Map Worker Stuck! Assigning MapTask to new Worker {ID: %v, FileName: %v}"), task.ID, task.FileName)
 			}
 			reply.Map = *task
 			reply.TaskType = mapTask
@@ -93,7 +94,7 @@ func (m *Master) RequestTask(_ *struct{}, reply *RequestTaskReply) error {
 		allReduceTasksDone = false
 		if task.state == idle || (task.state == inProgress && task.timeOut()) {
 			if task.state == inProgress {
-				DPrintf(fail("Reduce Worker Stuck! Assigning ReduceTask to new Worker %v"), task)
+				DPrintf(fail("Reduce Worker Stuck! Assigning ReduceTask to new Worker {ID: %v}"), task.ID)
 			}
 			reply.Red = *task
 			reply.TaskType = redTask
@@ -126,7 +127,6 @@ func (m *Master) TaskDone(args *DoneTaskArgs, _ *struct{}) error {
 		DPrintf("Map Worker Finished Working, Left : %v", m.mapTasksToFinish)
 		if m.mapTasksToFinish == 0 {
 			DPrintf(newPhase("%[1]v Starting Reduce Phase %[1]v"), strings.Repeat("-", 30))
-			// m.cond.Broadcast()
 		}
 	} else if args.TaskType == redTask && m.redTasks[args.TaskID].state != completed {
 		m.redTasks[args.TaskID].state = completed
