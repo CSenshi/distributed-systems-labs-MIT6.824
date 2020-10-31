@@ -38,7 +38,9 @@ type Master struct {
 }
 
 // RequestTask RPC handles giving tasks to workers
-func (m *Master) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) error {
+// We can ignore RequestTaskArg because tehre is nothing needed from worker
+// We just need RequestTaskReply to send response back
+func (m *Master) RequestTask(_ *struct{}, reply *RequestTaskReply) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -74,7 +76,9 @@ func (m *Master) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) err
 }
 
 // TaskDone handles marking tasks as completed when workers send notify
-func (m *Master) TaskDone(args *DoneTaskArgs, reply *DoneTaskReply) error {
+// We can ignore DoneTaskReply because there is nothing to send back
+// We just care about DoneTaskArgs to know which task was completed
+func (m *Master) TaskDone(args *DoneTaskArgs, _ *struct{}) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

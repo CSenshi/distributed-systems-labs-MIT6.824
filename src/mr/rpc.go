@@ -11,10 +11,6 @@ import (
 	"strconv"
 )
 
-// RequestTaskArgs RPC
-type RequestTaskArgs struct {
-}
-
 // RequestTaskReply RPC
 type RequestTaskReply struct {
 	Map      MapTask
@@ -28,10 +24,6 @@ type RequestTaskReply struct {
 type DoneTaskArgs struct {
 	TaskID   int
 	TaskType TaskType
-}
-
-// DoneTaskReply RPC
-type DoneTaskReply struct {
 }
 
 // Add your RPC definitions here.

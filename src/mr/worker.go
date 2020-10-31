@@ -37,17 +37,16 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	for {
 		// 1. Create RPC Argument
-		args := RequestTaskArgs{}
 		reply := RequestTaskReply{}
 
 		// 2. Send RPC
-		ok := sendRequestTaskRPC(&args, &reply)
+		ok := sendRequestTaskRPC(&reply)
 		if !ok {
 			DPrintf(fail("Connection Error: sendRequestTask | worker -> master"))
 		}
 
 		// 3. Process RPC Reply
-		success := processRequestTaskReply(&args, &reply, mapf, reducef)
+		success := processRequestTaskReply(&reply, mapf, reducef)
 		if !success {
 			break
 		}
@@ -58,7 +57,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	}
 }
 
-func processRequestTaskReply(args *RequestTaskArgs, reply *RequestTaskReply, mapf func(string, string) []KeyValue, reducef func(string, []string) string) bool {
+func processRequestTaskReply(reply *RequestTaskReply, mapf func(string, string) []KeyValue, reducef func(string, []string) string) bool {
 	switch reply.TaskType {
 	case mapTask:
 		processMapTask(reply, mapf)
@@ -128,7 +127,7 @@ func processMapTask(reply *RequestTaskReply, mapf func(string, string) []KeyValu
 
 	// 5. Send Back Task Done RPC
 	newArgs := &DoneTaskArgs{TaskID: task.ID, TaskType: mapTask}
-	ok := sendDoneTaskRPC(newArgs, &DoneTaskReply{})
+	ok := sendDoneTaskRPC(newArgs)
 	if !ok {
 		DPrintf(fail("Connection Error: sendDoneTaskRPC worker -> master"))
 	}
@@ -188,7 +187,7 @@ func processRedTask(reply *RequestTaskReply, reducef func(string, []string) stri
 
 	// 5. Send Back Task Done RPC
 	newArgs := &DoneTaskArgs{TaskID: task.ID, TaskType: redTask}
-	ok := sendDoneTaskRPC(newArgs, &DoneTaskReply{})
+	ok := sendDoneTaskRPC(newArgs)
 	if !ok {
 		DPrintf(fail("Connection Error: sendDoneTaskRPC worker -> master"))
 	}
@@ -199,13 +198,13 @@ func processNOPTask(reply *RequestTaskReply) bool {
 	return false
 }
 
-func sendDoneTaskRPC(args *DoneTaskArgs, reply *DoneTaskReply) bool {
-	ok := call("Master.TaskDone", args, reply)
+func sendDoneTaskRPC(args *DoneTaskArgs) bool {
+	ok := call("Master.TaskDone", args, new(struct{}))
 	return ok
 }
 
-func sendRequestTaskRPC(args *RequestTaskArgs, reply *RequestTaskReply) bool {
-	ok := call("Master.RequestTask", args, reply)
+func sendRequestTaskRPC(reply *RequestTaskReply) bool {
+	ok := call("Master.RequestTask", new(struct{}), reply)
 	return ok
 }
 
