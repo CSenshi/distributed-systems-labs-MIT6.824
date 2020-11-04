@@ -37,6 +37,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			rf.state = follower
 		}
 		rf.currentTerm = args.Term
+		rf.persist()
 	}
 
 	// 1. Reply false if term < currentTerm (§5.1)
@@ -75,6 +76,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 	reply.Success = true
 	reply.Term = rf.currentTerm
+	rf.persist()
 	_, _ = DPrintf(appendEntryLog("[T%v] %v: Received AppendEntry from %v | Result: Success | Entries: %v"), rf.currentTerm, rf.me, args.LeaderID, args.Entries)
 	rf.resetTTL()
 }

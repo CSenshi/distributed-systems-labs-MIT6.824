@@ -12,6 +12,7 @@ var (
 	appendEntryLog = white
 	newFollower    = yellow
 	newLog         = purple
+	newRaftServer  = green
 )
 
 var (

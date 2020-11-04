@@ -36,6 +36,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.votedFor = noVote
 		rf.currentTerm = args.Term
 		rf.state = follower
+		rf.persist()
 	}
 
 	// 1. Reply false if term < currentTerm (§5.1)
@@ -62,6 +63,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		_, _ = DPrintf(vote("[T%v] %v: Received RequestVote from %v | Vote Successful"), rf.currentTerm, rf.me, args.CandidateID)
 		rf.currentTerm = args.Term
 		rf.votedFor = args.CandidateID
+		rf.persist()
 	} else if !voteCheck {
 		_, _ = DPrintf(vote("[T%v] %v: Received RequestVote from %v | Vote Failure | Already voted for %v"), rf.currentTerm, rf.me, args.CandidateID, rf.votedFor)
 	} else {
@@ -139,6 +141,7 @@ func (rf *Raft) leaderElection() {
 			rf.state = candidate // 2. transitions to candidate state (§5.1)
 			rf.votedFor = rf.me  // 3. votes for itself (§5.1)
 			rf.votesReceived = 1
+			rf.persist()
 			rf.resetTTL()
 
 			// 4. issues RequestVote RPCs in parallel (§5.1)
@@ -198,6 +201,7 @@ func (rf *Raft) processRequestVoteReply(peerNum int, args *RequestVoteArgs, repl
 		rf.state = follower
 		rf.votedFor = noVote
 		rf.votesReceived = 0
+		rf.persist()
 		rf.resetTTL()
 		return
 	}
