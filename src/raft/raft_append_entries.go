@@ -175,17 +175,22 @@ func (rf *Raft) processAppendEntriesReply(i int, args AppendEntriesArgs, reply *
 		rf.state = follower
 		rf.votedFor = noVote
 		rf.votesReceived = 0
-		rf.resetTTL()
 	}
 
-	if !reply.Success {
-		// If AppendEntries fails because of log inconsistency: decrement nextIndex and retry (§5.3)
-		rf.nextIndex[i]--
-	} else {
-		// If successful: update nextIndex and matchIndex for follower (§5.3)
-		rf.matchIndex[i] = args.PrevLogIndex + len(args.Entries)
-		rf.nextIndex[i] = rf.matchIndex[i] + 1
+	// Term confusion
+	if args.Term != rf.currentTerm || rf.state != leader {
+		return
 	}
+
+	// If AppendEntries fails because of log inconsistency: decrement nextIndex and retry (§5.3)
+	if !reply.Success {
+		rf.nextIndex[i]--
+		return
+	}
+
+	// If successful: update nextIndex and matchIndex for follower (§5.3)
+	rf.matchIndex[i] = args.PrevLogIndex + len(args.Entries)
+	rf.nextIndex[i] = rf.matchIndex[i] + 1
 
 	// 	If there exists an N such that
 	//		1. N > commitIndex,
@@ -214,7 +219,6 @@ func (rf *Raft) processAppendEntriesReply(i int, args AppendEntriesArgs, reply *
 				go rf.commitLogEntries()
 				break
 			}
-
 		}
 	}
 }
