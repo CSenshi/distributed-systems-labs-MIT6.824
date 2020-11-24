@@ -3,21 +3,10 @@ package kvraft
 import (
 	"../labgob"
 	"../labrpc"
-	"log"
 	"../raft"
 	"sync"
 	"sync/atomic"
 )
-
-const Debug = 0
-
-func DPrintf(format string, a ...interface{}) (n int, err error) {
-	if Debug > 0 {
-		log.Printf(format, a...)
-	}
-	return
-}
-
 
 type Op struct {
 	// Your definitions here.
@@ -34,16 +23,25 @@ type KVServer struct {
 
 	maxraftstate int // snapshot if log grows this big
 
-	// Your definitions here.
+	db map[string]string
 }
 
-
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
-	// Your code here.
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	reply.Value = kv.db[args.Key]
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-	// Your code here.
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	if args.Op == "Put" {
+		kv.db[args.Key] = args.Value
+	} else {
+		kv.db[args.Key] = kv.db[args.Key] + args.Value
+	}
 }
 
 //
@@ -59,7 +57,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 func (kv *KVServer) Kill() {
 	atomic.StoreInt32(&kv.dead, 1)
 	kv.rf.Kill()
-	// Your code here, if desired.
+	DPrintf(serverDied("Raft Server %v: Killed"), kv.me)
 }
 
 func (kv *KVServer) killed() bool {
@@ -90,12 +88,13 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.me = me
 	kv.maxraftstate = maxraftstate
 
+	kv.db = make(map[string]string)
 	// You may need initialization code here.
 
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
+	DPrintf(newServer("Server %d Initialized!!!"), me)
 
 	// You may need initialization code here.
-
 	return kv
 }
