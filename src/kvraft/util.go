@@ -8,6 +8,7 @@ import (
 var (
 	newServer  = green
 	serverDied = red
+	networkErr = red
 )
 
 var (
@@ -21,7 +22,7 @@ var (
 	white   = Color("\033[1;37m%s\033[0m")
 )
 
-const coloring = 0 // if coloring > 0 then: color output
+const coloring = 1 // if coloring > 0 then: color output
 const debug = 0    // if debug > 0 then: print debug logs
 
 // Color function takes interface that sprintfs given string and colors

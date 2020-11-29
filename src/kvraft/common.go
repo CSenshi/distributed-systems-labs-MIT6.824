@@ -8,14 +8,20 @@ const (
 
 type Err string
 
+type OpType int
+
+const (
+	OpGet    = iota
+	OpPut    = iota
+	OpAppend = iota
+)
+
 // Put or Append
 type PutAppendArgs struct {
 	Key   string
 	Value string
-	Op    string // "Put" or "Append"
-	// You'll have to add definitions here.
-	// Field names must start with capital letters,
-	// otherwise RPC will break.
+	Op    OpType // "Put" or "Append"
+	ID    int
 }
 
 type PutAppendReply struct {
@@ -24,6 +30,7 @@ type PutAppendReply struct {
 
 type GetArgs struct {
 	Key string
+	ID  int
 	// You'll have to add definitions here.
 }
 

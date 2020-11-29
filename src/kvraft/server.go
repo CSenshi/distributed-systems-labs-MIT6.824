@@ -1,21 +1,23 @@
 package kvraft
 
 import (
+	"sync"
+	"sync/atomic"
+
 	"../labgob"
 	"../labrpc"
 	"../raft"
-	"sync"
-	"sync/atomic"
 )
 
 type Op struct {
-	// Your definitions here.
-	// Field names must start with capital letters,
-	// otherwise RPC will break.
+	Op  OpType
+	Key string
+	ID  int
 }
 
 type KVServer struct {
 	mu      sync.Mutex
+	cond    *sync.Cond
 	me      int
 	rf      *raft.Raft
 	applyCh chan raft.ApplyMsg
@@ -23,25 +25,64 @@ type KVServer struct {
 
 	maxraftstate int // snapshot if log grows this big
 
-	db map[string]string
+	db   map[string]string
+	logs map[int]bool
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
 
+	msg := Op{
+		Op:  OpGet,
+		Key: args.Key,
+		ID:  args.ID,
+	}
+	_, _, isLeader := kv.rf.Start(msg)
+	if !isLeader {
+		reply.Err = ErrWrongLeader
+		return
+	}
+
+	for !kv.logs[args.ID] {
+		kv.cond.Wait()
+	}
+
 	reply.Value = kv.db[args.Key]
+	reply.Err = OK
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
 
-	if args.Op == "Put" {
+	msg := Op{
+		Op:  args.Op,
+		Key: args.Key,
+		ID:  args.ID,
+	}
+	_, _, isLeader := kv.rf.Start(msg)
+	if !isLeader {
+		reply.Err = ErrWrongLeader
+		return
+	}
+
+	for !kv.logs[args.ID] {
+		kv.cond.Wait()
+	}
+
+	val, ok := kv.db[args.Key]
+	if args.Op == OpPut {
 		kv.db[args.Key] = args.Value
 	} else {
-		kv.db[args.Key] = kv.db[args.Key] + args.Value
+		if ok {
+			kv.db[args.Key] = val + args.Value
+		} else {
+			reply.Err = ErrNoKey
+		}
 	}
+	DPrintf("KEY: (%v | BEFORE: %v | NOW: %v", args.Key, less(val), less(kv.db[args.Key]))
+	reply.Err = OK
 }
 
 //
@@ -63,6 +104,15 @@ func (kv *KVServer) Kill() {
 func (kv *KVServer) killed() bool {
 	z := atomic.LoadInt32(&kv.dead)
 	return z == 1
+}
+
+func (kv *KVServer) readRes() {
+	for {
+		log := <-kv.applyCh
+		op := log.Command.(Op)
+		kv.logs[op.ID] = true
+		kv.cond.Broadcast()
+	}
 }
 
 //
@@ -88,13 +138,16 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.me = me
 	kv.maxraftstate = maxraftstate
 
+	kv.cond = sync.NewCond(&kv.mu)
 	kv.db = make(map[string]string)
+	kv.logs = make(map[int]bool)
 	// You may need initialization code here.
 
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 	DPrintf(newServer("Server %d Initialized!!!"), me)
 
+	go kv.readRes()
 	// You may need initialization code here.
 	return kv
 }
