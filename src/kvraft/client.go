@@ -11,6 +11,7 @@ import (
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	nextID  int
+	leader  int
 	// You will have to modify this struct.
 }
 
@@ -25,6 +26,7 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
 	ck.nextID = 0
+	ck.leader = 0
 	// You'll have to add code here.
 	return ck
 }
@@ -47,7 +49,7 @@ func (ck *Clerk) Get(key string) string {
 		ID:  time.Now().UnixNano(),
 	}
 
-	for i := 0; ; i = (i + 1) % len(ck.servers) {
+	for i := ck.leader; ; i = (i + 1) % len(ck.servers) {
 		reply := GetReply{}
 		ok := ck.servers[i].Call("KVServer.Get", &args, &reply)
 		if !ok {
@@ -61,6 +63,10 @@ func (ck *Clerk) Get(key string) string {
 		}
 		if reply.Err == OK {
 			DPrintf(teal("Get: (%v) --> \"%v\""), key, less(reply.Value))
+			if i != ck.leader {
+				DPrintf(green("New Leader! %v --> %v"), ck.leader, i)
+			}
+			ck.leader = i
 			return reply.Value
 		}
 	}
@@ -83,7 +89,7 @@ func (ck *Clerk) PutAppend(key string, value string, op OpType) {
 		Op:    op,
 		ID:    time.Now().UnixNano(),
 	}
-	for i := 0; ; i = (i + 1) % len(ck.servers) {
+	for i := ck.leader; ; i = (i + 1) % len(ck.servers) {
 		reply := PutAppendReply{}
 		ok := ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
 		if !ok {
@@ -94,6 +100,10 @@ func (ck *Clerk) PutAppend(key string, value string, op OpType) {
 		}
 		if reply.Err == OK {
 			DPrintf(teal("%v: (%v, \"%v\")"), op, key, value)
+			if i != ck.leader {
+				DPrintf(green("New Leader! %v --> %v"), ck.leader, i)
+			}
+			ck.leader = i
 			return
 		}
 	}
