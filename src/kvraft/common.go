@@ -1,12 +1,15 @@
 package kvraft
 
+import "fmt"
+import "time"
+
+type Err string
+
 const (
 	OK             = "OK"
 	ErrNoKey       = "ErrNoKey"
 	ErrWrongLeader = "ErrWrongLeader"
 )
-
-type Err string
 
 type OpType int
 
@@ -16,12 +19,29 @@ const (
 	OpAppend = iota
 )
 
+func (e OpType) String() string {
+	switch e {
+	case OpGet:
+		return "Get"
+	case OpPut:
+		return "Put"
+	case OpAppend:
+		return "Append"
+	default:
+		return fmt.Sprintf("Undefined Opperation:%d", int(e))
+	}
+}
+
+const (
+	LogWaitTTL = time.Second
+)
+
 // Put or Append
 type PutAppendArgs struct {
 	Key   string
 	Value string
 	Op    OpType // "Put" or "Append"
-	ID    int
+	ID    int64
 }
 
 type PutAppendReply struct {
@@ -30,7 +50,7 @@ type PutAppendReply struct {
 
 type GetArgs struct {
 	Key string
-	ID  int
+	ID  int64
 	// You'll have to add definitions here.
 }
 

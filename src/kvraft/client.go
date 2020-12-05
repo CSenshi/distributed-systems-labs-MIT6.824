@@ -1,8 +1,12 @@
 package kvraft
 
-import "../labrpc"
-import "crypto/rand"
-import "math/big"
+import (
+	"crypto/rand"
+	"math/big"
+	"time"
+
+	"../labrpc"
+)
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd
@@ -40,7 +44,7 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 func (ck *Clerk) Get(key string) string {
 	args := GetArgs{
 		Key: key,
-		ID:  ck.nextID,
+		ID:  time.Now().UnixNano(),
 	}
 
 	for i := 0; ; i = (i + 1) % len(ck.servers) {
@@ -77,7 +81,7 @@ func (ck *Clerk) PutAppend(key string, value string, op OpType) {
 		Key:   key,
 		Value: value,
 		Op:    op,
-		ID:    ck.nextID,
+		ID:    time.Now().UnixNano(),
 	}
 	for i := 0; ; i = (i + 1) % len(ck.servers) {
 		reply := PutAppendReply{}

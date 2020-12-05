@@ -3,6 +3,7 @@ package kvraft
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"../labgob"
 	"../labrpc"
@@ -10,9 +11,15 @@ import (
 )
 
 type Op struct {
-	Op  OpType
-	Key string
-	ID  int
+	Op    OpType
+	Key   string
+	Value string
+	ID    int64
+}
+
+type LogOp struct {
+	Value string
+	Error Err
 }
 
 type KVServer struct {
@@ -25,64 +32,117 @@ type KVServer struct {
 
 	maxraftstate int // snapshot if log grows this big
 
-	db   map[string]string
-	logs map[int]bool
+	db    map[string]string
+	logs  map[int64]bool
+	chans map[int64]chan LogOp
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
-
+	// 1. Create Get Op to pass through raft
 	msg := Op{
 		Op:  OpGet,
 		Key: args.Key,
 		ID:  args.ID,
 	}
+
+	// 2. Send Op and check if current peer is leader
 	_, _, isLeader := kv.rf.Start(msg)
 	if !isLeader {
 		reply.Err = ErrWrongLeader
 		return
 	}
 
-	for !kv.logs[args.ID] {
-		kv.cond.Wait()
+	// 3. Get Channel To Read/Write
+	kv.mu.Lock()
+	ch, ok := kv.chans[args.ID]
+	if !ok {
+		ch = make(chan LogOp, 1)
+		kv.chans[args.ID] = ch
+	}
+	kv.mu.Unlock()
+
+	// 4. Wait For Channgel Result
+	select {
+	case logOp := <-ch:
+		reply.Err = logOp.Error
+		reply.Value = logOp.Value
+	case <-time.After(LogWaitTTL):
+		reply.Err = ErrWrongLeader
+	}
+}
+func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
+	// 1. Create PutAppend Op to pass through raft
+	msg := Op{
+		Op:    args.Op,
+		Key:   args.Key,
+		Value: args.Value,
+		ID:    args.ID,
 	}
 
-	reply.Value = kv.db[args.Key]
-	reply.Err = OK
+	// 2. Send Op and check if current peer is leader
+	_, _, isLeader := kv.rf.Start(msg)
+	if !isLeader {
+		reply.Err = ErrWrongLeader
+		return
+	}
+
+	// 3. Get Channel To Read/Write
+	kv.mu.Lock()
+	ch, ok := kv.chans[args.ID]
+	if !ok {
+		ch = make(chan LogOp, 1)
+		kv.chans[args.ID] = ch
+	}
+	kv.mu.Unlock()
+
+	// 4. Wait For Channgel Result
+	select {
+	case logOp := <-ch:
+		reply.Err = logOp.Error
+	case <-time.After(LogWaitTTL):
+		reply.Err = ErrWrongLeader
+	}
 }
 
-func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
-
-	msg := Op{
-		Op:  args.Op,
-		Key: args.Key,
-		ID:  args.ID,
-	}
-	_, _, isLeader := kv.rf.Start(msg)
-	if !isLeader {
-		reply.Err = ErrWrongLeader
-		return
-	}
-
-	for !kv.logs[args.ID] {
-		kv.cond.Wait()
-	}
-
-	val, ok := kv.db[args.Key]
-	if args.Op == OpPut {
-		kv.db[args.Key] = args.Value
-	} else {
-		if ok {
-			kv.db[args.Key] = val + args.Value
-		} else {
-			reply.Err = ErrNoKey
+func (kv *KVServer) applyLogs() {
+	for {
+		if kv.killed() {
+			return
 		}
+
+		msg := <-kv.applyCh
+		log := msg.Command.(Op)
+		logOp := LogOp{Error: OK}
+
+		kv.mu.Lock()
+		if kv.chans[log.ID] == nil {
+			kv.mu.Unlock()
+			continue
+		}
+		if kv.logs[log.ID] {
+			kv.mu.Unlock()
+			continue
+		}
+
+		if log.Op == OpGet {
+			logOp.Value = kv.db[log.Key]
+		} else {
+			val, ok := kv.db[log.Key]
+			if log.Op == OpPut {
+				kv.db[log.Key] = log.Value
+			} else {
+				if ok {
+					kv.db[log.Key] = val + log.Value
+				} else {
+					logOp.Error = ErrNoKey
+				}
+			}
+		}
+		ch := kv.chans[log.ID]
+		kv.mu.Unlock()
+		ch <- logOp
+		kv.logs[log.ID] = true
 	}
-	DPrintf("KEY: (%v | BEFORE: %v | NOW: %v", args.Key, less(val), less(kv.db[args.Key]))
-	reply.Err = OK
 }
 
 //
@@ -104,15 +164,6 @@ func (kv *KVServer) Kill() {
 func (kv *KVServer) killed() bool {
 	z := atomic.LoadInt32(&kv.dead)
 	return z == 1
-}
-
-func (kv *KVServer) readRes() {
-	for {
-		log := <-kv.applyCh
-		op := log.Command.(Op)
-		kv.logs[op.ID] = true
-		kv.cond.Broadcast()
-	}
 }
 
 //
@@ -140,14 +191,15 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	kv.cond = sync.NewCond(&kv.mu)
 	kv.db = make(map[string]string)
-	kv.logs = make(map[int]bool)
+	kv.logs = make(map[int64]bool)
+	kv.chans = make(map[int64]chan LogOp)
 	// You may need initialization code here.
 
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 	DPrintf(newServer("Server %d Initialized!!!"), me)
 
-	go kv.readRes()
+	go kv.applyLogs()
 	// You may need initialization code here.
 	return kv
 }

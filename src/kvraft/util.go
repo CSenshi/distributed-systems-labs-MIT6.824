@@ -6,9 +6,10 @@ import (
 )
 
 var (
-	newServer  = green
-	serverDied = red
-	networkErr = red
+	newServer         = green
+	opperationSuccess = green
+	serverDied        = red
+	networkErr        = red
 )
 
 var (
@@ -23,7 +24,7 @@ var (
 )
 
 const coloring = 1 // if coloring > 0 then: color output
-const debug = 0    // if debug > 0 then: print debug logs
+const debug = 1    // if debug > 0 then: print debug logs
 
 // Color function takes interface that sprintfs given string and colors
 func Color(colorString string) func(...interface{}) string {
