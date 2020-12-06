@@ -35,9 +35,10 @@ type KVServer struct {
 
 	maxraftstate int // snapshot if log grows this big
 
-	db    map[string]string
-	logs  map[int64]int64
-	chans map[int64]chan LogOp
+	db        map[string]string
+	logs      map[int64]int64
+	chans     map[int]chan LogOp
+	persister *raft.Persister
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
@@ -50,7 +51,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	}
 
 	// 2. Send Op and check if current peer is leader
-	_, _, isLeader := kv.rf.Start(msg)
+	index, _, isLeader := kv.rf.Start(msg)
 	if !isLeader {
 		reply.Err = ErrWrongLeader
 		return
@@ -58,19 +59,19 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 
 	// 3. Get Channel To Read/Write
 	kv.mu.Lock()
-	ch, ok := kv.chans[args.ID]
+	ch, ok := kv.chans[index]
 	if !ok {
 		ch = make(chan LogOp, 1)
-		kv.chans[args.ID] = ch
+		kv.chans[index] = ch
 	}
 	kv.mu.Unlock()
 
-	// 4. Wait For Channgel Result
+	// 4. Wait For Channel Result
 	select {
 	case logOp := <-ch:
 		if logOp.CID == msg.CID && logOp.ID == msg.ID {
-			reply.Err = logOp.Error
 			reply.Value = logOp.Value
+			reply.Err = logOp.Error
 		}
 	case <-time.After(LogWaitTTL):
 		DPrintf(red("[%v] Log Chanel Time Out!"), kv.me)
@@ -88,7 +89,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	}
 
 	// 2. Send Op and check if current peer is leader
-	_, _, isLeader := kv.rf.Start(msg)
+	index, _, isLeader := kv.rf.Start(msg)
 	if !isLeader {
 		reply.Err = ErrWrongLeader
 		return
@@ -96,14 +97,14 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 
 	// 3. Get Channel To Read/Write
 	kv.mu.Lock()
-	ch, ok := kv.chans[args.ID]
+	ch, ok := kv.chans[index]
 	if !ok {
 		ch = make(chan LogOp, 1)
-		kv.chans[args.ID] = ch
+		kv.chans[index] = ch
 	}
 	kv.mu.Unlock()
 
-	// 4. Wait For Channgel Result
+	// 4. Wait For Channel Result
 	select {
 	case logOp := <-ch:
 		if logOp.CID == msg.CID && logOp.ID == msg.ID {
@@ -116,36 +117,39 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 }
 
 func (kv *KVServer) applyLogs() {
-	for {
+	for msg := range kv.applyCh {
 		if kv.killed() {
 			return
 		}
 
-		msg := <-kv.applyCh
-		log := msg.Command.(Op)
-		logOp := LogOp{Error: OK, CID: log.CID, ID: log.ID}
-		kv.mu.Lock()
-		if kv.chans[log.ID] == nil {
-			kv.mu.Unlock()
+		if !msg.CommandValid {
 			continue
 		}
+		log := msg.Command.(Op)
+		logOp := LogOp{Error: OK, CID: log.CID, ID: log.ID}
+
+		kv.mu.Lock()
 		if kv.logs[log.CID] < log.ID {
-			if log.Op == OpGet {
-				logOp.Value = kv.db[log.Key]
-			} else {
-				val, ok := kv.db[log.Key]
-				if log.Op == OpPut {
-					kv.db[log.Key] = log.Value
-				} else {
-					if ok {
-						kv.db[log.Key] = val + log.Value
-					} else {
-					}
-				}
+			if log.Op == OpPut {
+				kv.db[log.Key] = log.Value
+			}
+			if log.Op == OpAppend {
+				kv.db[log.Key] += log.Value
+			}
+			kv.logs[log.CID] = log.ID
+		}
+		if log.Op == OpGet {
+			val, ok := kv.db[log.Key]
+			logOp.Value = val
+			if !ok {
+				logOp.Error = ErrNoKey
 			}
 		}
-		ch := kv.chans[log.ID]
-		kv.logs[log.CID] = log.ID
+		ch, ok := kv.chans[msg.CommandIndex]
+		if !ok {
+			ch = make(chan LogOp, 1)
+			kv.chans[msg.CommandIndex] = ch
+		}
 		kv.mu.Unlock()
 		ch <- logOp
 	}
@@ -198,11 +202,12 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.cond = sync.NewCond(&kv.mu)
 	kv.db = make(map[string]string)
 	kv.logs = make(map[int64]int64)
-	kv.chans = make(map[int64]chan LogOp)
+	kv.chans = make(map[int]chan LogOp)
 	// You may need initialization code here.
 
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
+	kv.persister = persister
 	DPrintf(newServer("Server %d Initialized!!!"), me)
 
 	go kv.applyLogs()
