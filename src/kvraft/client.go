@@ -12,6 +12,7 @@ type Clerk struct {
 	servers []*labrpc.ClientEnd
 	nextID  int
 	leader  int
+	id      int64
 	// You will have to modify this struct.
 }
 
@@ -27,6 +28,7 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck.servers = servers
 	ck.nextID = 0
 	ck.leader = 0
+	ck.id = time.Now().UnixNano()
 	// You'll have to add code here.
 	return ck
 }
@@ -47,6 +49,7 @@ func (ck *Clerk) Get(key string) string {
 	args := GetArgs{
 		Key: key,
 		ID:  time.Now().UnixNano(),
+		CID: ck.id,
 	}
 
 	for i := ck.leader; ; i = (i + 1) % len(ck.servers) {
@@ -88,6 +91,7 @@ func (ck *Clerk) PutAppend(key string, value string, op OpType) {
 		Value: value,
 		Op:    op,
 		ID:    time.Now().UnixNano(),
+		CID:   ck.id,
 	}
 	for i := ck.leader; ; i = (i + 1) % len(ck.servers) {
 		reply := PutAppendReply{}

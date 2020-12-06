@@ -42,6 +42,7 @@ type PutAppendArgs struct {
 	Value string
 	Op    OpType // "Put" or "Append"
 	ID    int64
+	CID   int64
 }
 
 type PutAppendReply struct {
@@ -51,6 +52,7 @@ type PutAppendReply struct {
 type GetArgs struct {
 	Key string
 	ID  int64
+	CID int64
 	// You'll have to add definitions here.
 }
 
