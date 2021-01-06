@@ -1,9 +1,5 @@
 package raft
 
-import (
-	"time"
-)
-
 // RequestVoteArgs struct for RequestVote RPC call Argument
 type RequestVoteArgs struct {
 	Term         int // candidate’s term
@@ -22,21 +18,14 @@ type RequestVoteReply struct {
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
 
 	reply.VoteGranted = false
 	reply.Term = rf.currentTerm
 
-	// (All Servers): If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+	// Rule for all servers: If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
 	if args.Term > rf.currentTerm {
-		if rf.state == follower {
-			_, _ = DPrintf(vote("[T%v -> T%v] %v: Received RequestVote from %v | Transition to new Term | Received Higher Term"), rf.currentTerm, args.Term, rf.me, args.CandidateID)
-		} else {
-			_, _ = DPrintf(vote("[T%v -> T%v] %v: Received RequestVote from %v | Transition to new Term/State | %v -> %v | Received Higher Term"), rf.currentTerm, args.Term, rf.me, args.CandidateID, rf.state, follower)
-		}
-		rf.votedFor = noVote
-		rf.currentTerm = args.Term
-		rf.state = follower
-		rf.persist()
+		rf.convertToFollower(args.Term)
 	}
 
 	// 1. Reply false if term < currentTerm (§5.1)
@@ -54,7 +43,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Check 1 vote: should be able to vote or voted for candidate
 	voteCheck := rf.votedFor == noVote || rf.votedFor == args.CandidateID
 	// Check 2 up-to-date = (same indices OR candidate's lastLogIndex > current peer's lastLogIndex)
-	lastLogIndex, lastLogTerm := len(rf.log)-1, rf.log[len(rf.log)-1].Term
+	lastLogIndex, lastLogTerm := rf.lastLogEntryIndex(), rf.lastLogEntryTerm()
 	logCheck := lastLogTerm < args.LastLogTerm || (lastLogTerm == args.LastLogTerm && lastLogIndex <= args.LastLogIndex)
 
 	// Both checks should be true to grant vote
@@ -63,7 +52,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		_, _ = DPrintf(vote("[T%v] %v: Received RequestVote from %v | Vote Successful"), rf.currentTerm, rf.me, args.CandidateID)
 		rf.currentTerm = args.Term
 		rf.votedFor = args.CandidateID
-		rf.persist()
 	} else if !voteCheck {
 		_, _ = DPrintf(vote("[T%v] %v: Received RequestVote from %v | Vote Failure | Already voted for %v"), rf.currentTerm, rf.me, args.CandidateID, rf.votedFor)
 	} else {
@@ -73,8 +61,17 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.resetTTL()
 }
 
-//
-// example code to send a RequestVote RPC to a server.
+// Create Request Vote RPC Argument
+func (rf *Raft) createRequestVoteArgs() *RequestVoteArgs {
+	return &RequestVoteArgs{
+		Term:         rf.currentTerm,
+		CandidateID:  rf.me,
+		LastLogIndex: rf.lastLogEntryIndex(),
+		LastLogTerm:  rf.lastLogEntryTerm(),
+	}
+}
+
+// code to send a RequestVote RPC to a server.
 // server is the index of the target server in rf.peers[].
 // expects RPC arguments in args.
 // fills in *reply with RPC reply, so caller should
@@ -103,85 +100,18 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // the struct itself.
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+	// RPC Send Request
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	return ok
-}
-
-// create a background goroutine that will kick off leader election periodically by sending out
-// RequestVote RPCs when it hasn't heard from another peer for a while. This way a peer
-// will learn who is the leader, if there is already a leader, or become the leader itself.
-func (rf *Raft) leaderElection() {
-	for {
+	if !ok {
 		rf.mu.Lock()
-		ttlElapsed := rf.electionStartTime.Before(time.Now().Add(-rf.electionTTL))
-
-		if rf.killed() {
-			rf.mu.Unlock()
-			return
-		}
-		if rf.state == leader {
-			rf.mu.Unlock()
-			time.Sleep(time.Duration(dummySleepNoElection) * time.Millisecond)
-		} else if !ttlElapsed /* && (rf.state == follower || rf.state == candidate) */ {
-			rf.mu.Unlock()
-			time.Sleep(time.Duration(dummySleepNoElection) * time.Millisecond)
-		} else /* (rf.state == follower || rf.state == candidate) && ttlElapsed */ {
-			// Just Debug Prints
-			if rf.state == follower {
-				_, _ = DPrintf(newElection("[T%v -> T%v] %v: (%v -> %v) Heartbeat Timeout!"), rf.currentTerm, rf.currentTerm+1, rf.me, rf.state, candidate)
-			} else if rf.state == candidate {
-				_, _ = DPrintf(newElection("[T%v -> T%v] %v: (%v -> %v) Election Timeout!"), rf.currentTerm, rf.currentTerm+1, rf.me, rf.state, candidate)
-			} else {
-				_, _ = DPrintf(newElection("[T%v -> T%v] %v: (%v -> %v) WTF State?!"), rf.currentTerm, rf.currentTerm+1, rf.me, rf.state, candidate)
-			}
-			_, _ = DPrintf(vote("[T%v] %v: Voted for %v (Itself)"), rf.currentTerm+1, rf.me, rf.me)
-
-			// Actual Work
-			rf.currentTerm++     // 1. increments its current term (§5.1)
-			rf.state = candidate // 2. transitions to candidate state (§5.1)
-			rf.votedFor = rf.me  // 3. votes for itself (§5.1)
-			rf.votesReceived = 1
-			rf.persist()
-			rf.resetTTL()
-
-			// 4. issues RequestVote RPCs in parallel (§5.1)
-
-			// Prepare RPC Arg
-			args := rf.createRequestVoteArgs()
-			for i := range rf.peers {
-				if i == rf.me {
-					continue
-				}
-				go func(peer int, args *RequestVoteArgs) {
-					// Prepare RPC Reply
-					reply := &RequestVoteReply{}
-
-					// RPC Send Request
-					ok := rf.sendRequestVote(peer, args, reply)
-					if !ok {
-						rf.mu.Lock()
-						_, _ = DPrintf(red("[T%v] %v: Network Error! RequestVote: No connection to Peer %v"), rf.currentTerm, rf.me, peer)
-						rf.mu.Unlock()
-						return
-					}
-
-					// Evaluate RPC Result
-					rf.processRequestVoteReply(peer, args, reply)
-				}(i, args)
-			}
-			rf.mu.Unlock()
-		}
+		_, _ = DPrintf(red("[T%v] %v: Network Error! RequestVote: No connection to Peer %v"), rf.currentTerm, rf.me, server)
+		rf.mu.Unlock()
+		return false
 	}
-}
 
-// Create Request Vote RPC Argument
-func (rf *Raft) createRequestVoteArgs() *RequestVoteArgs {
-	return &RequestVoteArgs{
-		Term:         rf.currentTerm,
-		CandidateID:  rf.me,
-		LastLogIndex: len(rf.log) - 1,
-		LastLogTerm:  rf.log[len(rf.log)-1].Term,
-	}
+	// Evaluate RPC Result
+	rf.processRequestVoteReply(server, args, reply)
+	return true
 }
 
 // Process Request Vote RPC Reply
@@ -189,20 +119,9 @@ func (rf *Raft) processRequestVoteReply(peerNum int, args *RequestVoteArgs, repl
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	// If RPC response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+	// Rule for all servers: If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
 	if reply.Term > rf.currentTerm {
-		if rf.currentTerm != reply.Term {
-			_, _ = DPrintf(newFollower("[T%v -> T%v] %v: Change State: %v -> %v"), rf.currentTerm, reply.Term, rf.me, rf.state, follower)
-		} else {
-			_, _ = DPrintf(newFollower("[T%v] %v: Change State: %v -> %v"), rf.currentTerm, rf.me, rf.state, follower)
-		}
-		_, _ = DPrintf(newFollower("[T%v] %v: Change State: %v -> %v"), rf.currentTerm, rf.me, rf.state, follower)
-		rf.currentTerm = reply.Term
-		rf.state = follower
-		rf.votedFor = noVote
-		rf.votesReceived = 0
-		rf.persist()
-		rf.resetTTL()
+		rf.convertToFollower(reply.Term)
 		return
 	}
 

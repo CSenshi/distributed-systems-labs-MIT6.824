@@ -1,6 +1,7 @@
 package kvraft
 
 import (
+	"bytes"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -123,8 +124,10 @@ func (kv *KVServer) applyLogs() {
 		}
 
 		if !msg.CommandValid {
+			kv.decodeSnapshot(msg.Command.([]byte))
 			continue
 		}
+
 		log := msg.Command.(Op)
 		logOp := LogOp{Error: OK, CID: log.CID, ID: log.ID}
 
@@ -150,6 +153,12 @@ func (kv *KVServer) applyLogs() {
 			ch = make(chan LogOp, 1)
 			kv.chans[msg.CommandIndex] = ch
 		}
+
+		// Check if it's time for compaction and if so take snapshot of current raft state
+		if kv.maxraftstate != noMaxState && float32(kv.persister.RaftStateSize()) >= float32(kv.maxraftstate)*0.7 {
+			go kv.rf.SnapshotRaftState(msg.CommandIndex, kv.encodeSnapshot())
+		}
+
 		kv.mu.Unlock()
 		ch <- logOp
 	}
@@ -176,6 +185,36 @@ func (kv *KVServer) killed() bool {
 	return z == 1
 }
 
+func (kv *KVServer) encodeSnapshot() []byte {
+	buffer := new(bytes.Buffer)
+	encoder := labgob.NewEncoder(buffer)
+
+	encoder.Encode(kv.db)
+	encoder.Encode(kv.logs)
+
+	return buffer.Bytes()
+}
+
+func (kv *KVServer) decodeSnapshot(data []byte) {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	// 1. Decode
+	var dbSnap map[string]string
+	var logsSnap map[int64]int64
+
+	decoder := labgob.NewDecoder(bytes.NewBuffer(data))
+
+	if decoder.Decode(&dbSnap) != nil || decoder.Decode(&logsSnap) != nil {
+		// if we reach this branch, then something went wrong while decoding, we should exit and not write invalid data to memory
+		return
+	}
+
+	// 2. Write decoded data in the struct memory
+	kv.db = dbSnap
+	kv.logs = logsSnap
+}
+
 //
 // servers[] contains the ports of the set of
 // servers that will cooperate via Raft to
@@ -191,26 +230,27 @@ func (kv *KVServer) killed() bool {
 // for any long-running work.
 //
 func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int) *KVServer {
-	// call labgob.Register on structures you want
-	// Go's RPC library to marshall/unmarshall.
+	// 1. call labgob.Register on structures you want Go's RPC library to marshall/unmarshall.
 	labgob.Register(Op{})
 
+	// 2. Init kvServer instance variables
 	kv := new(KVServer)
 	kv.me = me
 	kv.maxraftstate = maxraftstate
-
 	kv.cond = sync.NewCond(&kv.mu)
 	kv.db = make(map[string]string)
 	kv.logs = make(map[int64]int64)
 	kv.chans = make(map[int]chan LogOp)
-	// You may need initialization code here.
-
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 	kv.persister = persister
-	DPrintf(newServer("Server %d Initialized!!!"), me)
 
+	// 3. Read snapshot data
+	kv.decodeSnapshot(kv.persister.ReadSnapshot())
+
+	// 4. Run logs applier/commiter go routine
 	go kv.applyLogs()
-	// You may need initialization code here.
+
+	DPrintf(newServer("Server %d Initialized!!!"), me)
 	return kv
 }

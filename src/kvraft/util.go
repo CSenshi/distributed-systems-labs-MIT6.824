@@ -23,8 +23,9 @@ var (
 	white   = Color("\033[1;37m%s\033[0m")
 )
 
-const coloring = 1 // if coloring > 0 then: color output
-const debug = 1    // if debug > 0 then: print debug logs
+const coloring = 1    // if coloring > 0 then: color output
+const debug = 0       // if debug > 0 then: print debug logs
+const noMaxState = -1 // should not be used when maxraftstate = -1
 
 // Color function takes interface that sprintfs given string and colors
 func Color(colorString string) func(...interface{}) string {

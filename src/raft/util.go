@@ -3,6 +3,8 @@ package raft
 import (
 	"fmt"
 	"log"
+	"math/rand"
+	"time"
 )
 
 var (
@@ -78,6 +80,58 @@ const (
 	electionMinTTL   = 400
 	electionRangeTTL = 200
 
-	heartBeatInterval    = 200
-	dummySleepNoElection = 50
+	heartBeatInterval    = 100
+	dummySleepNoElection = 100
 )
+
+func (rf *Raft) resetTTL() {
+	rf.electionTTL = time.Millisecond * (time.Duration(electionMinTTL + rand.Intn(electionRangeTTL)))
+	rf.electionStartTime = time.Now()
+}
+
+func (rf *Raft) convertToFollower(newTerm int) {
+	if rf.state == follower {
+		_, _ = DPrintf(newFollower("[T%v -> T%v] %v: Received Received Higher Term | Transition to new Term"), rf.currentTerm, newTerm, rf.me)
+	} else {
+		_, _ = DPrintf(newFollower("[T%v -> T%v] %v: Received Received Higher Term | Transition to new Term/State | %v -> %v"), rf.currentTerm, newTerm, rf.me, rf.state, follower)
+	}
+	rf.currentTerm = newTerm
+	rf.votedFor = noVote
+	rf.votesReceived = 0
+	rf.state = follower
+	rf.persist()
+}
+
+func (rf *Raft) updateIndices(index int, term int) {
+	if index > rf.commitIndex {
+		rf.commitIndex = index
+	}
+	if term > rf.lastApplied {
+		rf.lastApplied = term
+	}
+}
+
+func (rf *Raft) toReal(trimmed int) int {
+	return trimmed - rf.lastIncludedIndex - 1
+}
+
+func (rf *Raft) lastLogEntryTerm() int {
+	if len(rf.log) > 0 {
+		return rf.log[len(rf.log)-1].Term
+	}
+	return rf.lastIncludedTerm
+}
+
+func (rf *Raft) lastLogEntryIndex() int {
+	if len(rf.log) > 0 {
+		return len(rf.log) + rf.lastIncludedIndex
+	}
+	return rf.lastIncludedIndex
+}
+
+func (rf *Raft) toTerm(trimmed int) int {
+	if trimmed > rf.lastIncludedIndex {
+		return rf.log[rf.toReal(trimmed)].Term
+	}
+	return rf.lastIncludedTerm
+}
